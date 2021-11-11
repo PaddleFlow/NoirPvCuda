@@ -1,0 +1,66 @@
+// Paravirtualization CVM
+
+#define ConsoleInputPort	0
+#define ConsoleOutputPort	1
+#define ConsoleErrorPort	2
+
+#define NOIR_HYPERCALL_CODE_SHUTDOWN		0x0
+
+#define PvCriticalRangePages		512
+#define PvPagingStructuresPages		32256
+#define PvBasicFreeMemoryPages		32768
+#define PvExtendedFreeMemoryPages	65536
+
+#define PvCriticalRangeSize			PvCriticalRangePages*PAGE_SIZE
+#define PvPagingStructuresSize		PvPagingStructuresPages*PAGE_SIZE
+#define PvBasicFreeMemorySize		PvBasicFreeMemoryPages*PAGE_SIZE
+#define PvExtendedFreeMemorySizee	PvExtendedFreeMemoryPages*PAGE_SIZE
+
+#define PvCriticalRangeBase			0x0
+#define PvPagingStructuresBase		0x200000
+#define PvBasicFreeMemoryBase		0x8000000
+#define PvExtendedFreeMemoryBase	0x10000000
+
+#define PvCriticalRangeGva			0xFFFF800000000000
+#define PvBootingModuleGva			0xFFFF800000200000
+#define PvPagingPoolGva				0xFFFFF68000000000
+#define PvSystemMemoryPoolGva		0xFFFFF80000000000
+#define PvSwappableMemoryPoolGva	0xFFFFFA8000000000
+#define PvHalRegionGva				0xFFFFFFFF80000000
+
+/*
+	Paravirtualized Physical Memory Map:
+	Base		Size	Description
+	0x00000000	2MiB	Critical Range
+	0x00200000	126MiB	Paging Structure
+	0x08000000	128MiB	Basic Free Memory
+	0x10000000	256MiB	Extended Free Memory #1
+	0x20000000	256MiB	Extended Free Memory #2
+	...
+*/
+
+/*
+	Critical Range Layout:
+	Each vCPU owns a 4KiB page of memory area in the Critical Range.
+	The 4KiB page is divided as the following:
+	Offset	Size	Description
+	+0x000	0x400	Interrupt Descriptor Table Entries
+	+0x400	0x80	Global Descriptor Table Entries
+	+0x480	0x80	Task State Segment
+	+0x500	0x300	Reserved for Future Design
+	+0x800	0x800	Paravirtualized Kernel Processor Block
+*/
+
+ULONG PvPrintConsoleA(IN PCSTR Format,...);
+ULONG PvPrintConsoleW(IN PCWSTR Format,...);
+PVOID MemAlloc(IN SIZE_T Length);
+BOOL MemFree(IN PVOID Memory);
+
+extern HANDLE StdIn;
+extern HANDLE StdOut;
+
+CVM_HANDLE PvCvm;
+PVOID PvCriticalRange=NULL;
+PVOID PvPagingStructures=NULL;
+PVOID PvBasicFreeMemory=NULL;
+ULONG64 PvParavirtualizedKernelEntryPoint=PvBootingModuleGva;
