@@ -8,3 +8,5 @@ BOOL PvLoadParavirtualizedKernel();
 NOIR_STATUS PvStartParavirtualizedGuest();
 NOIR_STATUS PvInitializeVirtualMachine(IN ULONG32 VpCount);
 void PvFinalizeVirtualMachine();
+
+BOOLEAN DumpMemory=FALSE;

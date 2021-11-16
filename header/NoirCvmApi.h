@@ -238,6 +238,13 @@ typedef enum _NOIR_CVM_INTERCEPT_CODE
 	CvSchedulerPause=0x80000001
 }NOIR_CVM_INTERCEPT_CODE,*PNOIR_CVM_INTERCEPT_CODE;
 
+typedef enum _NOIR_CVM_VIRTUAL_PROCESSOR_OPTION_TYPE
+{
+	NoirCvmGuestVpOptions,
+	NoirCvmExceptionBitmap,
+	NoirCvmSchedulingPriority
+}NOIR_CVM_VIRTUAL_PROCESSOR_OPTION_TYPE;*PNOIR_CVM_VIRTUAL_PROCESSOR_OPTION_TYPE;
+
 typedef struct _NOIR_CVM_CR_ACCESS_CONTEXT
 {
 	struct
@@ -350,6 +357,28 @@ typedef struct _NOIR_CVM_EXIT_CONTEXT
 	}VpState;
 }NOIR_CVM_EXIT_CONTEXT,*PNOIR_CVM_EXIT_CONTEXT;
 
+typedef union _NOIR_CVM_VIRTUAL_PROCESSOR_OPTIONS
+{
+	struct
+	{
+		ULONG32 InterceptCpuid:1;
+		ULONG32 InterceptRdmsr:1;
+		ULONG32 InterceptWrmsr:1;
+		ULONG32 InterceptExceptions:1;
+		ULONG32 InterceptCr3:1;
+		ULONG32 InterceptDrx:1;
+		ULONG32 InterceptPause:1;
+		ULONG32 Npiep:1;
+		ULONG32 Reserved:24;
+	};
+	ULONG32 Value;
+}NOIR_CVM_VIRTUAL_PROCESSOR_OPTIONS,*PNOIR_CVM_VIRTUAL_PROCESSOR_OPTIONS;
+
+#define NoirEventTypeExternalInterrupt		0
+#define NoirEventTypeNonMaskableInterrupt	2
+#define NoirEventTypeFaultTrapException		3
+#define NoirEventTypeSoftwareInterrupt		4
+
 BOOL NoirInitializeLibrary();
 void NoirFinalizeLibrary();
 NOIR_STATUS NoirCreateVirtualMachine(OUT PCVM_HANDLE VmHandle);
@@ -360,6 +389,8 @@ NOIR_STATUS NoirSetAddressMapping(IN CVM_HANDLE VmHandle,IN PNOIR_ADDRESS_MAPPIN
 NOIR_STATUS NoirRunVirtualProcessor(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex,OUT PNOIR_CVM_EXIT_CONTEXT ExitContext);
 NOIR_STATUS NoirEditVirtualProcessorRegister(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex,IN NOIR_CVM_REGISTER_TYPE RegisterType,IN PVOID Buffer,IN ULONG32 BufferSize);
 NOIR_STATUS NoirViewVirtualProcessorRegister(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex,IN NOIR_CVM_REGISTER_TYPE RegisterType,OUT PVOID Buffer,IN ULONG32 BufferSize);
+NOIR_STATUS NoirSetEventInjection(IN CVM_HANDLE VirtualMachine,IN ULONG32 VpIndex,IN BOOLEAN Valid,IN BYTE Vector,IN BYTE Type,IN BOOLEAN ErrorCodeValid,IN ULONG32 ErrorCode);
+NOIR_STATUS NoirSetVirtualProcessorOptions(IN CVM_HANDLE VirtualMachine,IN ULONG32 VpIndex,IN NOIR_CVM_VIRTUAL_PROCESSOR_OPTION_TYPE Type,IN ULONG32 Data);
 PVOID PageAlloc(IN SIZE_T Length);
 BOOL PageFree(IN PVOID Memory);
 BOOL LockPage(IN PVOID Memory,IN ULONG Size);

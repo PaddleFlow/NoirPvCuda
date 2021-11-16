@@ -18,7 +18,7 @@ int main(int argc,char* argv[],char* envp[])
 		b=PvLoadParavirtualizedKernel();
 		if(b)PvPrintConsoleA("Paravirtualized Kernel image is loaded successfully!\n");
 		st=PvStartParavirtualizedGuest();
-		PvPrintConsoleA("Paravirtualized Guest Startup Status=0x%X\n");
+		PvPrintConsoleA("Paravirtualized Guest Startup Status=0x%X\n",st);
 		PvFinalizeVirtualMachine();
 		PvPrintConsoleA("Guest VM is terminated...\n");
 	}

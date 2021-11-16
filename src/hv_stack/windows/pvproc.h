@@ -1,7 +1,11 @@
 // Processor Definitions
 
 #define PAGE_BASE(x)			(x&0xFFFFFFFFFFFFF000)
+
 #define PAGE_SIZE				0x1000
+#define PAGE_LARGE_SIZE			0x200000
+#define PAGE_HUGE_SIZE			0x40000000
+
 #define PAGE_SHIFT				12
 #define PAGE_LARGE_SHIFT		21
 #define PAGE_HUGE_SHIFT			30
@@ -51,6 +55,7 @@ typedef struct _KGDTENTRY64
 }KGDTENTRY64,*PKGDTENTRY64;
 #pragma pack()
 
+#pragma pack(1)
 typedef struct _KIDTENTRY64
 {
 	USHORT OffsetLow;
@@ -68,8 +73,9 @@ typedef struct _KIDTENTRY64
 	ULONG32 OffsetHigh;
 	ULONG32 Reserved;
 }KIDTENTRY64,*PKIDTENTRY64;
+#pragma pack()
 
-#pragma pack(4)
+#pragma pack(1)
 typedef struct _KTSSENTRY64
 {
 	ULONG32 Reserved0;

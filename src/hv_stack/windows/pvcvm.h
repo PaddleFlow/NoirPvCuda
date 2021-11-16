@@ -4,7 +4,20 @@
 #define ConsoleOutputPort	1
 #define ConsoleErrorPort	2
 
+#define NOIR_DUMMY_INTERRUPT_VECTOR			0x20
+
 #define NOIR_HYPERCALL_CODE_SHUTDOWN		0x0
+
+#define KGDT_KERNEL_CODE64			0x10
+#define KGDT_KERNEL_DATA64			0x18
+#define KGDT_USER_TEB32				0x20
+#define KGDT_USER_TEB64				0x30
+#define KGDT_KERNEL_PROC64			0x30
+#define KGDT_KERNEL_TSS64			0x40
+#define KGDT_USER_CODE32			0x50
+#define KGDT_USER_DATA32			0x58
+#define KGDT_USER_CODE64			0x60
+#define KGDT_USER_DATA64			0x68
 
 #define PvCriticalRangePages		512
 #define PvPagingStructuresPages		32256
@@ -59,6 +72,8 @@ BOOL MemFree(IN PVOID Memory);
 extern HANDLE StdIn;
 extern HANDLE StdOut;
 
+CHAR DummyBuffer[256]={0};
+BYTE DummyPointer=0;
 CVM_HANDLE PvCvm;
 PVOID PvCriticalRange=NULL;
 PVOID PvPagingStructures=NULL;

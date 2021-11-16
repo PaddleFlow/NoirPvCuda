@@ -1,4 +1,6 @@
 #include <Windows.h>
+#include <dbghelp.h>
+#include <strsafe.h>
 #include <NoirCvmApi.h>
 #include "pvcvm.h"
 #include "pvproc.h"
@@ -33,13 +35,14 @@ void PvFinalizeVirtualMachine()
 // Albeit IDT will be initialized by paravirtualized kernel, we should initialize GDT for guest.
 void PvInitializeVirtualProcessorDescriptors(IN ULONG32 VpIndex)
 {
-	ULONG64 PvKernelBlock=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT)+0x800;
-	ULONG64 PvTssBlock=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT)+0x480;
-	PKGDTENTRY64 DataSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x410);
-	PKGDTENTRY64 CodeSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x408);
-	PKGDTENTRY64 FsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x420);
-	PKGDTENTRY64 GsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x430);
-	PKGDTENTRY64 TrSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x440);
+	ULONG64 PvKernelBlock=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x3000;
+	ULONG64 PvTssBlock=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x2000;
+	PKGDTENTRY64 DataSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_KERNEL_DATA64);
+	PKGDTENTRY64 CodeSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_KERNEL_CODE64);
+	PKGDTENTRY64 FsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_USER_TEB32);
+	PKGDTENTRY64 GsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_KERNEL_PROC64);
+	PKGDTENTRY64 TrSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_KERNEL_TSS64);
+	PKTSSENTRY64 Tss=(PKTSSENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+0x2000);
 	// Initialize Data Segments - for ES, DS, SS
 	DataSeg->Limit=0xFFFF;
 	DataSeg->BaseLow=0;
@@ -47,11 +50,11 @@ void PvInitializeVirtualProcessorDescriptors(IN ULONG32 VpIndex)
 	DataSeg->BaseMid2=0;
 	DataSeg->Attributes=0xCF93;
 	// Initialize Code Segments
-	CodeSeg->Limit=0xFFFF;
+	CodeSeg->Limit=0;
 	CodeSeg->BaseLow=0;
 	CodeSeg->BaseMid1=0;
 	CodeSeg->BaseMid2=0;
-	CodeSeg->Attributes=0xEF9B;
+	CodeSeg->Attributes=0x209B;
 	// Initialize FS Segment - 32-bit User Thread Block
 	FsSeg->Limit=0xFFFF;
 	FsSeg->BaseLow=0;
@@ -69,13 +72,16 @@ void PvInitializeVirtualProcessorDescriptors(IN ULONG32 VpIndex)
 	GsSeg->BaseHigh=PvKernelBlock>>32;
 	GsSeg->Reserved=0;
 	// Initialize Task Segment
-	TrSeg->Limit=0x80;
+	TrSeg->Limit=0x79;
 	TrSeg->BaseLow=PvTssBlock&0xFFFF;
 	TrSeg->BaseMid1=(BYTE)((PvTssBlock&0xFF0000)>>16);
 	TrSeg->BaseMid2=(BYTE)((PvTssBlock&0xFF000000)>>24);
 	TrSeg->Attributes=0x89;
 	TrSeg->BaseHigh=PvTssBlock>>32;
 	TrSeg->Reserved=0;
+	// Initialize Task State
+	Tss->IoMapBase=0x68;
+	Tss->Rsp0=PvBootingModuleGva+PAGE_SIZE*500;
 }
 
 NOIR_STATUS PvInitializeVirtualProcessor(IN ULONG32 VpIndex)
@@ -85,6 +91,7 @@ NOIR_STATUS PvInitializeVirtualProcessor(IN ULONG32 VpIndex)
 	if(st==NOIR_SUCCESS)
 	{
 		// Initialize various registers.
+		NOIR_CVM_VIRTUAL_PROCESSOR_OPTIONS VpOpt={0};
 		NOIR_CR_STATE CrState={0x80050033,PvPagingStructuresBase,0x406F8};
 		ULONG64 Dr67[2]={0xFFFF0FF0,0x400};
 		NOIR_SR_STATE SrState;
@@ -93,12 +100,12 @@ NOIR_STATUS PvInitializeVirtualProcessor(IN ULONG32 VpIndex)
 		SEGMENT_REGISTER LtSeg[2];
 		NOIR_FX_STATE FxState={0};
 		ULONG64 RFlags=0x2,Efer=0xD01,Pat=0x0007040600070406,Xcr0=3;
-		SrState.Es.Selector=0x10;
+		SrState.Es.Selector=0x18;
 		SrState.Es.Attributes=0xC093;
 		SrState.Es.Limit=0xFFFFFFFF;
 		SrState.Es.Base=0;
-		SrState.Cs.Selector=0x8;
-		SrState.Cs.Attributes=0xA09B;
+		SrState.Cs.Selector=0x10;
+		SrState.Cs.Attributes=0x209B;
 		SrState.Cs.Limit=0xFFFFFFFF;
 		SrState.Cs.Base=0;
 		SrState.Ds=SrState.Ss=SrState.Es;
@@ -109,15 +116,15 @@ NOIR_STATUS PvInitializeVirtualProcessor(IN ULONG32 VpIndex)
 		FgSeg[1].Selector=0x30;
 		FgSeg[1].Attributes=0xC093;
 		FgSeg[1].Limit=0xFFFFFFFF;
-		FgSeg[1].Base=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT)+0x800;
-		DtSeg[0].Limit=0x57;
-		DtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT);
+		FgSeg[1].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x3000;
+		DtSeg[0].Limit=0x79;
+		DtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x1000;
 		DtSeg[1].Limit=0xFFF;
-		DtSeg[1].Base=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT)+0x400;
+		DtSeg[1].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2));
 		LtSeg[0].Selector=0x40;
 		LtSeg[0].Attributes=0x89;
-		LtSeg[0].Limit=0x80;
-		LtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT)+0x480;
+		LtSeg[0].Limit=0x79;
+		LtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x2000;
 		LtSeg[1].Selector=0;
 		LtSeg[1].Attributes=0;
 		LtSeg[1].Limit=0;
@@ -126,6 +133,7 @@ NOIR_STATUS PvInitializeVirtualProcessor(IN ULONG32 VpIndex)
 		FxState.Fpu.Fsw=0x0;
 		FxState.Fpu.Ftw=0x0;
 		FxState.Fpu.Mxcsr=0x1F80;
+		PvInitializeVirtualProcessorDescriptors(VpIndex);
 		// Write them into vCPU.
 		st=NoirEditVirtualProcessorRegister(PvCvm,VpIndex,NoirCvmFlagsRegister,&RFlags,sizeof(RFlags));
 		PvPrintConsoleA("[VM vCPU %u] Flags Register Initialization Status: 0x%X\n",VpIndex,st);
@@ -149,6 +157,12 @@ NOIR_STATUS PvInitializeVirtualProcessor(IN ULONG32 VpIndex)
 		PvPrintConsoleA("[VM vCPU %u] Efer Register Initialization Status: 0x%X\n",VpIndex,st);
 		st=NoirEditVirtualProcessorRegister(PvCvm,VpIndex,NoirCvmPatRegister,&Pat,sizeof(Pat));
 		PvPrintConsoleA("[VM vCPU %u] PAT Register Initialization Status: 0x%X\n",VpIndex,st);
+		// Initialize vCPU Options
+		VpOpt.InterceptExceptions=1;
+		st=NoirSetVirtualProcessorOptions(PvCvm,0,NoirCvmGuestVpOptions,VpOpt.Value);
+		PvPrintConsoleA("[VM vCPU %u] Set-Option Status: 0x%X\n",VpIndex,st);
+		st=NoirSetVirtualProcessorOptions(PvCvm,0,NoirCvmExceptionBitmap,0xFFFFFFFF);
+		PvPrintConsoleA("[VM vCPU %u] Exception Bitmap Set Status: 0x%X\n",VpIndex,st);
 	}
 	return st;
 }
@@ -224,6 +238,19 @@ ULONG32 PvTranslateGvaToGpa64(IN ULONG64 GuestCr3,IN ULONG64 Gva,IN ULONG64 Acce
 	return 1;
 }
 
+NOIR_STATUS PvPrintGeneralPurposeRegisters(IN ULONG32 VpIndex)
+{
+	ULONG64 GprState[16];
+	NOIR_STATUS st=NoirViewVirtualProcessorRegister(PvCvm,VpIndex,NoirCvmGeneralPurposeRegister,&GprState,sizeof(GprState));
+	if(st==NOIR_SUCCESS)
+	{
+		PSTR GprNames[16]={"rax","rcx","rdx","rbx","rsp","rbp","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"};
+		PvPrintConsoleA("Register\tValue\n");
+		for(ULONG i=0;i<16;i++)PvPrintConsoleA("%s\t\t0x%016llX\n",GprNames[i],GprState[i]);
+	}
+	return st;
+}
+
 BOOLEAN PvHandleIoAccess(IN ULONG32 VpIndex,IN PNOIR_CVM_EXIT_CONTEXT ExitContext)
 {
 	BOOLEAN Result=FALSE;
@@ -231,7 +258,57 @@ BOOLEAN PvHandleIoAccess(IN ULONG32 VpIndex,IN PNOIR_CVM_EXIT_CONTEXT ExitContex
 	{
 		case ConsoleInputPort:
 		{
-			break;
+			if(ExitContext->Io.Access.IoType)
+			{
+				if(ExitContext->Io.Access.String)
+				{
+					NOIR_CR_STATE CrState;
+					NOIR_STATUS st=NoirViewVirtualProcessorRegister(PvCvm,0,NoirCvmControlRegister,&CrState,sizeof(CrState));
+					if(st==NOIR_SUCCESS)
+					{
+						NOIR_GPR_STATE GprState;
+						// Output a character/string by memory reference.
+						USHORT Increment=ExitContext->Io.Access.OperandSize;
+						ULONG64 StringGva=0;
+						NoirViewVirtualProcessorRegister(PvCvm,0,NoirCvmGeneralPurposeRegister,&GprState,sizeof(GprState));
+						Increment*=_bittest64(&ExitContext->Rflags,RFLAGS_DF)?-1:1;
+						RtlMoveMemory(&StringGva,&ExitContext->Io.Rdi,ExitContext->Io.Access.AddressWidth);
+						Result=TRUE;
+						do
+						{
+							// Resolve Address Translation.
+							ULONG64 StringGpa;
+							ULONG ErrorCode=PvTranslateGvaToGpa64(CrState.Cr3,StringGva,0,&StringGpa);
+							if(ErrorCode==0)
+							{
+								ULONG64 StringHva=PvTranslateGpaToHva(StringGpa);
+								if(StringHva==0)
+									Result=FALSE;
+								else
+									RtlMoveMemory((PVOID)StringHva,&DummyBuffer[DummyPointer],ExitContext->Io.Access.OperandSize);
+							}
+							else
+							{
+								Result=FALSE;
+								break;
+							}
+							// Perform Increment.
+							if(ExitContext->Io.Access.Repeat)ExitContext->Io.Rcx--;
+							StringGva+=Increment;
+							DummyPointer+=Increment;
+						}while(ExitContext->Io.Access.Repeat && ExitContext->Io.Rcx);
+						GprState.Rdi=StringGva;
+						GprState.Rcx=ExitContext->Io.Rcx;
+						NoirEditVirtualProcessorRegister(PvCvm,0,NoirCvmGeneralPurposeRegister,&GprState,sizeof(GprState));
+					}
+				}
+				else
+				{
+					// Input a character by register reference.
+					RtlMoveMemory(&ExitContext->Io.Rax,&DummyBuffer[DummyPointer],ExitContext->Io.Access.OperandSize);
+					DummyPointer+=ExitContext->Io.Access.OperandSize;
+				}
+			}
 		}
 		case ConsoleOutputPort:
 		{
@@ -353,14 +430,32 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 			{
 				case CvInvalidState:
 				{
-					PvPrintConsoleA("The guest vCPU state is invalid!\n");
+					PvPrintConsoleA("Fatal: The guest vCPU state is invalid!\n");
 					ContinueExecution=FALSE;
 					break;
 				}
 				case CvShutdownCondition:
 				{
-					PvPrintConsoleA("Triple-Fault is intercepted! Guest VM will be terminated!\n");
+					ULONG_PTR IdtBase=(ULONG_PTR)PvCriticalRange;
+					PvPrintConsoleA("Fatal: Triple-Fault is intercepted! Guest VM will be terminated!\n");
+					StringCbGetsA(DummyBuffer,sizeof(DummyBuffer));
 					ContinueExecution=FALSE;
+					break;
+				}
+				case CvHltInstruction:
+				{
+					if(_bittest64(&ExitContext.Rflags,RFLAGS_IF))
+					{
+						ULONG64 NextRip=ExitContext.Rip+ExitContext.VpState.InstructionLength;
+						StringCbGetsA(DummyBuffer,sizeof(DummyBuffer));
+						NoirSetEventInjection(PvCvm,0,TRUE,NOIR_DUMMY_INTERRUPT_VECTOR,NoirEventTypeExternalInterrupt,FALSE,0);
+						NoirEditVirtualProcessorRegister(PvCvm,0,NoirCvmInstructionPointer,&NextRip,sizeof(NextRip));
+					}
+					else
+					{
+						PvPrintConsoleA("Fatal: Processor entered halted state without enabling interrupts!\n");
+						ContinueExecution=FALSE;
+					}
 					break;
 				}
 				case CvIoInstruction:
@@ -386,8 +481,23 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 					}
 					else
 					{
+						PvPrintConsoleA("Hypercall specified an end-of-execution!\n");
+						system("pause");
 						ContinueExecution=FALSE;
 					}
+					break;
+				}
+				case CvException:
+				{
+					CHAR Cmd[100];
+					PvPrintConsoleA("Exception Vector %u is intercepted!\n",ExitContext.Exception.Vector);
+					PvPrintConsoleA("Error Code is valid: 0x%X\n",ExitContext.Exception.ErrorCode);
+					if(ExitContext.Exception.Vector==14)PvPrintConsoleA("#PF Linear Address: 0x%p\n",ExitContext.Exception.PageFaultAddress);
+					PvPrintGeneralPurposeRegisters(0);
+					PvPrintConsoleA("rflags\t\t0x%016llX\n",ExitContext.Rflags);
+					PvPrintConsoleA("rip\t\t0x%016llX\n",ExitContext.Rip);
+					StringCbGetsA(Cmd,sizeof(Cmd));
+					ContinueExecution=FALSE;
 					break;
 				}
 				default:
