@@ -69,6 +69,10 @@ ULONG PvPrintConsoleW(IN PCWSTR Format,...);
 PVOID MemAlloc(IN SIZE_T Length);
 BOOL MemFree(IN PVOID Memory);
 
+BOOL PvReadGuestStdIn(OUT PVOID Buffer,IN ULONG Size);
+BOOL PvWriteGuestStdOut(IN PVOID Buffer,IN ULONG Size);
+BOOL PvWriteGuestStdErr(IN PVOID Buffer,IN ULONG Size);
+
 extern HANDLE StdIn;
 extern HANDLE StdOut;
 

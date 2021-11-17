@@ -2,7 +2,7 @@
 Paravirtualized Cuda Platform via NoirVisor CVM
 
 ## Introduction
-This project is a set of modules that provides Cuda ParaVirtualization via NoirVisor CVM.
+This project is a set of modules that provides Cuda ParaVirtualization via [NoirVisor CVM](https://github.com/Zero-Tang/NoirCvmApi).
 
 This is a crossover project with [PaddlePaddle](https://github.com/PaddlePaddle).
 

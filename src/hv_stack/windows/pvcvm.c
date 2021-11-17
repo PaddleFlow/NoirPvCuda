@@ -35,14 +35,14 @@ void PvFinalizeVirtualMachine()
 // Albeit IDT will be initialized by paravirtualized kernel, we should initialize GDT for guest.
 void PvInitializeVirtualProcessorDescriptors(IN ULONG32 VpIndex)
 {
-	ULONG64 PvKernelBlock=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x3000;
-	ULONG64 PvTssBlock=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x2000;
-	PKGDTENTRY64 DataSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_KERNEL_DATA64);
-	PKGDTENTRY64 CodeSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_KERNEL_CODE64);
-	PKGDTENTRY64 FsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_USER_TEB32);
-	PKGDTENTRY64 GsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_KERNEL_PROC64);
-	PKGDTENTRY64 TrSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+PAGE_SIZE+KGDT_KERNEL_TSS64);
-	PKTSSENTRY64 Tss=(PKTSSENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<(PAGE_SHIFT+2))+0x2000);
+	ULONG64 PvKernelBlock=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x800;
+	ULONG64 PvTssBlock=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x480;
+	PKGDTENTRY64 DataSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_KERNEL_DATA64);
+	PKGDTENTRY64 CodeSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_KERNEL_CODE64);
+	PKGDTENTRY64 FsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_USER_TEB32);
+	PKGDTENTRY64 GsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_KERNEL_PROC64);
+	PKGDTENTRY64 TrSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_KERNEL_TSS64);
+	PKTSSENTRY64 Tss=(PKTSSENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x480);
 	// Initialize Data Segments - for ES, DS, SS
 	DataSeg->Limit=0xFFFF;
 	DataSeg->BaseLow=0;
@@ -116,15 +116,15 @@ NOIR_STATUS PvInitializeVirtualProcessor(IN ULONG32 VpIndex)
 		FgSeg[1].Selector=0x30;
 		FgSeg[1].Attributes=0xC093;
 		FgSeg[1].Limit=0xFFFFFFFF;
-		FgSeg[1].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x3000;
+		FgSeg[1].Base=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT)+0x800;
 		DtSeg[0].Limit=0x79;
-		DtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x1000;
+		DtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT)+0x400;
 		DtSeg[1].Limit=0xFFF;
-		DtSeg[1].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2));
+		DtSeg[1].Base=PvCriticalRangeGva+(VpIndex<PAGE_SHIFT);
 		LtSeg[0].Selector=0x40;
 		LtSeg[0].Attributes=0x89;
 		LtSeg[0].Limit=0x79;
-		LtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x2000;
+		LtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x480;
 		LtSeg[1].Selector=0;
 		LtSeg[1].Attributes=0;
 		LtSeg[1].Limit=0;
@@ -358,7 +358,7 @@ BOOLEAN PvHandleIoAccess(IN ULONG32 VpIndex,IN PNOIR_CVM_EXIT_CONTEXT ExitContex
 							GprState.Rsi=StringGva;
 							GprState.Rcx=ExitContext->Io.Rcx;
 							NoirEditVirtualProcessorRegister(PvCvm,0,NoirCvmGeneralPurposeRegister,&GprState,sizeof(GprState));
-							PvPrintConsoleA(StringPool);
+							PvWriteGuestStdOut(StringPool,(ULONG)(Index-1));
 							MemFree(StringPool);
 						}
 					}
@@ -438,7 +438,6 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 				{
 					ULONG_PTR IdtBase=(ULONG_PTR)PvCriticalRange;
 					PvPrintConsoleA("Fatal: Triple-Fault is intercepted! Guest VM will be terminated!\n");
-					StringCbGetsA(DummyBuffer,sizeof(DummyBuffer));
 					ContinueExecution=FALSE;
 					break;
 				}
@@ -447,8 +446,8 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 					if(_bittest64(&ExitContext.Rflags,RFLAGS_IF))
 					{
 						ULONG64 NextRip=ExitContext.Rip+ExitContext.VpState.InstructionLength;
-						StringCbGetsA(DummyBuffer,sizeof(DummyBuffer));
-						NoirSetEventInjection(PvCvm,0,TRUE,NOIR_DUMMY_INTERRUPT_VECTOR,NoirEventTypeExternalInterrupt,FALSE,0);
+						PvReadGuestStdIn(DummyBuffer,sizeof(DummyBuffer));
+						NoirSetEventInjection(PvCvm,0,TRUE,NOIR_DUMMY_INTERRUPT_VECTOR,NoirEventTypeExternalInterrupt,1,FALSE,0);
 						NoirEditVirtualProcessorRegister(PvCvm,0,NoirCvmInstructionPointer,&NextRip,sizeof(NextRip));
 					}
 					else
@@ -482,7 +481,6 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 					else
 					{
 						PvPrintConsoleA("Hypercall specified an end-of-execution!\n");
-						system("pause");
 						ContinueExecution=FALSE;
 					}
 					break;

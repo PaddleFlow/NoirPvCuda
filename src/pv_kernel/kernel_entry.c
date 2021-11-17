@@ -8,6 +8,16 @@ void PvDummyPrinter()
 	CHAR Input[256];
 	__outbytestring(ConsoleOutputPort,DummyString,DummyStringLength);
 	__inbytestring(ConsoleInputPort,Input,sizeof(Input));
+	for(ULONG i=0;i<254;i++)
+	{
+		if(Input[i]=='\0')
+		{
+			Input[i]='\n';
+			break;
+		}
+	}
+	Input[254]='\n';
+	Input[255]='\0';
 	__outbytestring(ConsoleOutputPort,Input,sizeof(Input));
 }
 

@@ -1,6 +1,8 @@
 // Main header.
 
 void PvInitializeConsole();
+BOOL PvCreateGuestConsole();
+void PvTerminateGuestConsole();
 ULONG PvPrintConsoleA(IN PCSTR Format,...);
 ULONG PvPrintConsoleW(IN PCWSTR Format,...);
 BOOL PvInitializeGuestInternalMapping();

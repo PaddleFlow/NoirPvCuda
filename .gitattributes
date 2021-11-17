@@ -5,3 +5,4 @@
 *.h linguist-language=C
 *.asm linguist-language=Assembly
 *.inc linguist-language=Assembly
+*.bat linguist-detectable=false

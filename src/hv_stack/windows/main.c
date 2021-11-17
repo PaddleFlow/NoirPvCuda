@@ -10,6 +10,7 @@ int main(int argc,char* argv[],char* envp[])
 	NoirInitializeLibrary();
 	PvInitializeConsole();
 	PvPrintConsoleA("Welcome to Paravirtualized Cuda!\n");
+	PvCreateGuestConsole();
 	st=PvInitializeVirtualMachine(1);
 	if(st==NOIR_SUCCESS)
 	{
@@ -26,5 +27,6 @@ int main(int argc,char* argv[],char* envp[])
 		PvPrintConsoleA("Failed to initialize virtual machine! Status=0x%X\n",st);
 	NoirFinalizeLibrary();
 	system("pause");
+	PvTerminateGuestConsole();
 	return 0;
 }

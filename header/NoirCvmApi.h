@@ -389,7 +389,7 @@ NOIR_STATUS NoirSetAddressMapping(IN CVM_HANDLE VmHandle,IN PNOIR_ADDRESS_MAPPIN
 NOIR_STATUS NoirRunVirtualProcessor(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex,OUT PNOIR_CVM_EXIT_CONTEXT ExitContext);
 NOIR_STATUS NoirEditVirtualProcessorRegister(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex,IN NOIR_CVM_REGISTER_TYPE RegisterType,IN PVOID Buffer,IN ULONG32 BufferSize);
 NOIR_STATUS NoirViewVirtualProcessorRegister(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex,IN NOIR_CVM_REGISTER_TYPE RegisterType,OUT PVOID Buffer,IN ULONG32 BufferSize);
-NOIR_STATUS NoirSetEventInjection(IN CVM_HANDLE VirtualMachine,IN ULONG32 VpIndex,IN BOOLEAN Valid,IN BYTE Vector,IN BYTE Type,IN BOOLEAN ErrorCodeValid,IN ULONG32 ErrorCode);
+NOIR_STATUS NoirSetEventInjection(IN CVM_HANDLE VirtualMachine,IN ULONG32 VpIndex,IN BOOLEAN Valid,IN BYTE Vector,IN BYTE Type,IN BYTE Priority,IN BOOLEAN ErrorCodeValid,IN ULONG32 ErrorCode);
 NOIR_STATUS NoirSetVirtualProcessorOptions(IN CVM_HANDLE VirtualMachine,IN ULONG32 VpIndex,IN NOIR_CVM_VIRTUAL_PROCESSOR_OPTION_TYPE Type,IN ULONG32 Data);
 PVOID PageAlloc(IN SIZE_T Length);
 BOOL PageFree(IN PVOID Memory);
