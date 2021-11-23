@@ -362,8 +362,8 @@ typedef union _NOIR_CVM_VIRTUAL_PROCESSOR_OPTIONS
 	struct
 	{
 		ULONG32 InterceptCpuid:1;
-		ULONG32 InterceptRdmsr:1;
-		ULONG32 InterceptWrmsr:1;
+		ULONG32 InterceptMsr:1;
+		ULONG32 InterceptInterruptWindow:1;
 		ULONG32 InterceptExceptions:1;
 		ULONG32 InterceptCr3:1;
 		ULONG32 InterceptDrx:1;

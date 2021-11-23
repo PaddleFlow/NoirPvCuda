@@ -26,9 +26,11 @@ cl ..\src\hv_stack\windows\main.c /I"%incpath%\shared" /I"%incpath%\um" /I"%incp
 rc /nologo /i"%incpath%\shared" /i"%incpath%\um" /I"%incpath%\ucrt" /I"%ddkpath%\include" /d"_AMD64_" /fo"%objpath%\hv_stack\version.res" /n ..\src\hv_stack\windows\version.rc
 
 echo Compiling Paravirtualized Kernel...
-cl ..\src\pv_kernel\kernel_entry.c /I"%incpath%\shared" /I"%incpath%\km" /I"%incpath%\km\crt" /I"%ddkpath%\include" /Zi /nologo /W3 /WX /Od /Oi /D"_AMD64_" /D"_M_AMD64" /D"_WIN64" /D"_UNICODE" /D"UNICODE" /Zc:wchar_t /std:c17 /FAcs /Fa"%objpath%\pv_kernel\kernel_entry.cod" /Fo"%objpath%\pv_kernel\kernel_entry.obj" /Fd"%objpath%\pv_kernel\vc140.pdb" /GS- /Qspectre /TC /c /errorReport:queue
+cl ..\src\pv_kernel\kernel_entry.c /I"..\src\pv_kernel\inc" /Zi /nologo /W3 /WX /Od /Oi /D"_AMD64_" /D"_M_AMD64" /D"_KERNEL_INIT" /Zc:wchar_t /std:c17 /FAcs /Fa"%objpath%\pv_kernel\kernel_entry.cod" /Fo"%objpath%\pv_kernel\kernel_entry.obj" /Fd"%objpath%\pv_kernel\vc140.pdb" /GS- /Qspectre /TC /c /errorReport:queue
 
 ml64 /W3 /WX /Zf /Zd /Fo"%objpath%\pv_kernel\interrupt.obj" /c /nologo ..\src\pv_kernel\interrupt.asm
+
+ml64 /W3 /WX /Zf /Zd /Fo"%objpath%\pv_kernel\syscall.obj" /c /nologo ..\src\pv_kernel\syscall.asm
 
 nasm ..\src\pv_kernel\page_base.asm -o "%binpath%\page_base.dat"
 
@@ -39,7 +41,7 @@ cl ..\src\pv_console\windows\main.c /I"%incpath%\shared" /I"%incpath%\um" /I"%in
 echo ============Start Linking============
 link "%objpath%\hv_stack\main.obj" "%objpath%\hv_stack\pvcvm.obj" "%objpath%\hv_stack\pvmisc.obj" "%objpath%\hv_stack\version.res" /LIBPATH:"%libpath%\um\x64" /LIBPATH:"%libpath%\ucrt\x64" /LIBPATH:"%ddkpath%\lib\x64" /LIBPATH:"%dbgpath%\lib\x64" "ntdll.lib" "..\header\lib\x64\NoirCvmApi.lib" /NOLOGO /DEBUG /INCREMENTAL:NO /PDB:"%binpath%\NoirPvCuda.pdb" /OUT:"%binpath%\NoirPvCuda.exe" /SUBSYSTEM:CONSOLE /Machine:X64 /ERRORREPORT:QUEUE
 
-link "%objpath%\pv_kernel\kernel_entry.obj" "%objpath%\pv_kernel\interrupt.obj" /BASE:0xFFFF800000200000 /NOLOGO /DEBUG /INCREMENTAL:NO /PDB:"%binpath%\pv_kernel.pdb" /OUT:"%binpath%\pv_kernel.exe" /NODEFAULTLIB /SUBSYSTEM:NATIVE /ENTRY:"PvKernelEntry" /Machine:X64 /ERRORREPORT:QUEUE
+link "%objpath%\pv_kernel\kernel_entry.obj" "%objpath%\pv_kernel\interrupt.obj" "%objpath%\pv_kernel\syscall.obj" /BASE:0xFFFF800000200000 /NOLOGO /DEBUG /INCREMENTAL:NO /PDB:"%binpath%\pv_kernel.pdb" /OUT:"%binpath%\pv_kernel.exe" /NODEFAULTLIB /SUBSYSTEM:NATIVE /ENTRY:"PvKernelEntry" /Machine:X64 /ERRORREPORT:QUEUE
 
 link "%objpath%\pv_console\main.obj" /LIBPATH:"%libpath%\um\x64" /LIBPATH:"%libpath%\ucrt\x64" /LIBPATH:"%ddkpath%\lib\x64" /NOLOGO /DEBUG /INCREMENTAL:NO /PDB:"%binpath%\pv_console.pdb" /OUT:"%binpath%\pv_console.exe" /SUBSYSTEM:CONSOLE /Machine:X64 /ERRORREPORT:QUEUE
 

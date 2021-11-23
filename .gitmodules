@@ -1,0 +1,6 @@
+[submodule "disasm/zydis"]
+	path = disasm/zydis
+	url = https://github.com/Zyantific/zydis
+[submodule "disasm/zycore-c"]
+	path = disasm/zycore-c
+	url = https://github.com/Zyantific/zycore-c

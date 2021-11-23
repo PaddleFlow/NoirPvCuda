@@ -42,6 +42,9 @@ void PvInitializeVirtualProcessorDescriptors(IN ULONG32 VpIndex)
 	PKGDTENTRY64 FsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_USER_TEB32);
 	PKGDTENTRY64 GsSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_KERNEL_PROC64);
 	PKGDTENTRY64 TrSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_KERNEL_TSS64);
+	PKGDTENTRY64 UserCodeSeg32=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_USER_CODE32);
+	PKGDTENTRY64 UserDataSeg=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_USER_DATA);
+	PKGDTENTRY64 UserCodeSeg64=(PKGDTENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x400+KGDT_USER_CODE64);
 	PKTSSENTRY64 Tss=(PKTSSENTRY64)((ULONG_PTR)PvCriticalRange+(VpIndex<<PAGE_SHIFT)+0x480);
 	// Initialize Data Segments - for ES, DS, SS
 	DataSeg->Limit=0xFFFF;
@@ -72,15 +75,33 @@ void PvInitializeVirtualProcessorDescriptors(IN ULONG32 VpIndex)
 	GsSeg->BaseHigh=PvKernelBlock>>32;
 	GsSeg->Reserved=0;
 	// Initialize Task Segment
-	TrSeg->Limit=0x79;
+	TrSeg->Limit=sizeof(KTSSENTRY64)-1;
 	TrSeg->BaseLow=PvTssBlock&0xFFFF;
 	TrSeg->BaseMid1=(BYTE)((PvTssBlock&0xFF0000)>>16);
 	TrSeg->BaseMid2=(BYTE)((PvTssBlock&0xFF000000)>>24);
 	TrSeg->Attributes=0x89;
 	TrSeg->BaseHigh=PvTssBlock>>32;
 	TrSeg->Reserved=0;
+	// Initialize 32-Bit User Code Segment
+	UserCodeSeg32->Limit=0xFFFF;
+	UserCodeSeg32->BaseLow=0;
+	UserCodeSeg32->BaseMid1=0;
+	UserCodeSeg32->BaseMid2=0;
+	UserCodeSeg32->Attributes=0xCFFB;
+	// Initialize User Data Segment
+	UserDataSeg->Limit=0xFFFF;
+	UserDataSeg->BaseLow=0;
+	UserDataSeg->BaseMid1=0;
+	UserDataSeg->BaseMid2=0;
+	UserDataSeg->Attributes=0xCFF3;
+	// Initialize 64-Bit User Code Segment
+	UserCodeSeg64->Limit=0;
+	UserCodeSeg64->BaseLow=0;
+	UserCodeSeg64->BaseMid1=0;
+	UserCodeSeg64->BaseMid2=0;
+	UserCodeSeg64->Attributes=0x20FB;
 	// Initialize Task State
-	Tss->IoMapBase=0x68;
+	Tss->IoMapBase=sizeof(KTSSENTRY64);
 	Tss->Rsp0=PvBootingModuleGva+PAGE_SIZE*500;
 }
 
@@ -117,13 +138,13 @@ NOIR_STATUS PvInitializeVirtualProcessor(IN ULONG32 VpIndex)
 		FgSeg[1].Attributes=0xC093;
 		FgSeg[1].Limit=0xFFFFFFFF;
 		FgSeg[1].Base=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT)+0x800;
-		DtSeg[0].Limit=0x79;
+		DtSeg[0].Limit=0x7F;
 		DtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<PAGE_SHIFT)+0x400;
 		DtSeg[1].Limit=0xFFF;
 		DtSeg[1].Base=PvCriticalRangeGva+(VpIndex<PAGE_SHIFT);
 		LtSeg[0].Selector=0x40;
 		LtSeg[0].Attributes=0x89;
-		LtSeg[0].Limit=0x79;
+		LtSeg[0].Limit=sizeof(KTSSENTRY64)-1;
 		LtSeg[0].Base=PvCriticalRangeGva+(VpIndex<<(PAGE_SHIFT+2))+0x480;
 		LtSeg[1].Selector=0;
 		LtSeg[1].Attributes=0;
@@ -398,6 +419,45 @@ BOOLEAN PvHandleHypercall(IN ULONG32 VpIndex,IN PNOIR_CVM_EXIT_CONTEXT ExitConte
 			case NOIR_HYPERCALL_CODE_SHUTDOWN:
 			{
 				PvPrintConsoleA("Shutdown Hypercall is invoked! Guest will now shut down!\n");
+				break;
+			}
+			case NOIR_HYPERCALL_MEMORY_EXTENSION:
+			{
+				PvPrintConsoleA("Memory Extension is requested!\n");
+				break;
+			}
+			case NOIR_HYPERCALL_FILE_CREATE:
+			{
+				CHAR FilePath[MAX_PATH];
+				LARGE_INTEGER Option1,Option2;
+				Option1.QuadPart=GprState.R8;
+				Option2.QuadPart=GprState.R9;
+				// Resolve GVA here.
+				GprState.Rax=(ULONG64)CreateFileA(FilePath,Option1.LowPart,Option1.HighPart,NULL,Option2.LowPart,Option2.HighPart,NULL);
+				Result=TRUE;
+				break;
+			}
+			case NOIR_HYPERCALL_FILE_CLOSE:
+			{
+				GprState.Rax=(ULONG64)CloseHandle((HANDLE)GprState.Rcx);
+				Result=TRUE;
+				break;
+			}
+			case NOIR_HYPERCALL_FILE_READ:
+			{
+				Result=TRUE;
+				break;
+			}
+			case NOIR_HYPERCALL_FILE_WRITE:
+			{
+				Result=TRUE;
+				break;
+			}
+			case NOIR_HYPERCALL_FILE_SET_POINTER:
+			{
+				PLARGE_INTEGER NewPointer=(PLARGE_INTEGER)&GprState.R8;
+				GprState.Rax=(ULONG64)SetFilePointer((HANDLE)GprState.Rdx,NewPointer->LowPart,&NewPointer->HighPart,(DWORD)GprState.R9);
+				Result=TRUE;
 				break;
 			}
 		}
