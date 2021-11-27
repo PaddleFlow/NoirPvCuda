@@ -1,6 +1,7 @@
 // Processor Definitions
 
 #define PAGE_BASE(x)			(x&0xFFFFFFFFFFFFF000)
+#define PAGE_OFFSET(x)			(x&0xFFF)
 
 #define PAGE_SIZE				0x1000
 #define PAGE_LARGE_SIZE			0x200000

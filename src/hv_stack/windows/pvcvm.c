@@ -28,8 +28,19 @@ void PvFinalizeVirtualMachine()
 	NoirDeleteVirtualMachine(PvCvm);
 	UnlockPage(PvPagingStructures,PvPagingStructuresSize);
 	UnlockPage(PvCriticalRange,PvCriticalRangeSize);
+	UnlockPage(PvBasicFreeMemory,PvBasicFreeMemorySize);
 	PageFree(PvPagingStructures);
 	PageFree(PvCriticalRange);
+	PageFree(PvBasicFreeMemory);
+	for(ULONG i=0;i<PvAllocatedMemoryExtensions;i++)
+	{
+		if(PvMemoryExtensionPointerTable[i])
+		{
+			UnlockPage(PvMemoryExtensionPointerTable[i],PvExtendedFreeMemorySize);
+			PageFree(PvMemoryExtensionPointerTable[i]);
+		}
+	}
+	MemFree(PvMemoryExtensionPointerTable);
 }
 
 // Albeit IDT will be initialized by paravirtualized kernel, we should initialize GDT for guest.
@@ -198,8 +209,9 @@ ULONG64 PvTranslateGpaToHva(IN ULONG64 Gpa)
 		return (ULONG64)PvBasicFreeMemory+(Gpa-PvBasicFreeMemoryBase);
 	else
 	{
-		// FIXME: Extended Free Memory.
-		return 0;
+		ULONG64 ExtensionIndex=(Gpa>>28)-1;
+		// Beware of overflowing.
+		return ExtensionIndex<PvAllocatedMemoryExtensions?(ULONG64)PvMemoryExtensionPointerTable[ExtensionIndex]+(Gpa&0xFFFFFFF):0;
 	}
 }
 
@@ -257,6 +269,72 @@ ULONG32 PvTranslateGvaToGpa64(IN ULONG64 GuestCr3,IN ULONG64 Gva,IN ULONG64 Acce
 	}
 	// FIXME: Return appropriate error code.
 	return 1;
+}
+
+ULONG PvReadGuestMemory(IN ULONG64 GuestCr3,IN ULONG64 GuestAddress,OUT PVOID Buffer,IN ULONG Size,IN BOOLEAN VirtualAddress,IN ULONG64 Access)
+{
+	ULONG64 Gpa;
+	ULONG64 Hva;
+	// Do different treatments for guest memory accesses.
+	if(VirtualAddress)
+	{
+		// Access by virtual address.
+		// FIXME: Optimize by recognizing large/huge pages.
+		ULONG64 PageBase=PAGE_BASE(GuestAddress);
+		ULONG32 CopyOffset=PAGE_OFFSET(GuestAddress);
+		ULONG32 CopyLength=(PAGE_SIZE-CopyOffset)<Size?PAGE_SIZE-CopyOffset:Size;
+		for(ULONG CopiedSize=0;CopiedSize<Size;CopiedSize+=CopyLength)
+		{
+			// Translate the Guest Page.
+			ULONG32 ErrCode=PvTranslateGvaToGpa64(GuestCr3,PageBase+CopyOffset,Access,&Gpa);
+			if(ErrCode)return ErrCode;
+			Hva=PvTranslateGpaToHva(Gpa);
+			if(Hva==0)return 1;
+			RtlMoveMemory((PVOID)((ULONG_PTR)Buffer+CopiedSize),(PVOID)Hva,CopyLength);
+			// Prepare for next iteration.
+			PageBase+=PAGE_SIZE;
+			CopyOffset=0;
+			CopyLength=(Size-CopiedSize)<PAGE_SIZE?Size-CopiedSize:PAGE_SIZE;
+		}
+		return 0;
+	}
+	else
+	{
+		// Access by physical address.
+		// Determine the range. Recurse the call if there is overlapping.
+		if(GuestAddress>=PvCriticalRangeBase && GuestAddress<PvPagingStructuresBase)
+		{
+			ULONG CopyLength=(PvPagingStructuresBase-GuestAddress)<Size?(ULONG)(PvPagingStructuresBase-GuestAddress):Size;
+			ULONG RemainderLength=Size-CopyLength;
+			RtlMoveMemory(Buffer,(PVOID)((ULONG_PTR)PvCriticalRange+GuestAddress),CopyLength);
+			if(RemainderLength)return PvReadGuestMemory(0,PvPagingStructuresBase,(PVOID)((ULONG_PTR)Buffer+CopyLength),RemainderLength,FALSE,0);
+		}
+		else if(GuestAddress>=PvPagingStructuresBase && GuestAddress<PvBasicFreeMemoryBase)
+		{
+			ULONG CopyLength=(PvBasicFreeMemoryBase-GuestAddress)<Size?(ULONG)(PvBasicFreeMemoryBase-GuestAddress):Size;
+			ULONG RemainderLength=Size-CopyLength;
+			RtlMoveMemory(Buffer,(PVOID)((ULONG_PTR)PvPagingStructures+GuestAddress-PvPagingStructuresBase),CopyLength);
+			if(RemainderLength)return PvReadGuestMemory(0,PvBasicFreeMemoryBase,(PVOID)((ULONG_PTR)Buffer+CopyLength),RemainderLength,FALSE,0);
+		}
+		else if(GuestAddress>=PvBasicFreeMemoryBase && GuestAddress<PvExtendedFreeMemoryBase)
+		{
+			ULONG CopyLength=(PvExtendedFreeMemoryBase-GuestAddress)<Size?(ULONG)(PvExtendedFreeMemoryBase-GuestAddress):Size;
+			ULONG RemainderLength=Size-CopyLength;
+			RtlMoveMemory(Buffer,(PVOID)((ULONG_PTR)PvBasicFreeMemory+(GuestAddress-PvBasicFreeMemoryBase)),CopyLength);
+			if(RemainderLength)return PvReadGuestMemory(0,PvExtendedFreeMemoryBase,(PVOID)((ULONG_PTR)Buffer+CopyLength),RemainderLength,FALSE,0);
+		}
+		else
+		{
+			ULONG64 ExtensionIndex=(GuestAddress>>28)-1;
+			ULONG64 ExtensionBase=ExtensionIndex<<28;
+			ULONG CopyLength=(ExtensionBase+PvExtendedFreeMemorySize-GuestAddress)<Size?(ULONG)(ExtensionBase+PvExtendedFreeMemorySize-GuestAddress):Size;
+			ULONG RemainderLength=Size-CopyLength;
+			RtlMoveMemory(Buffer,(PVOID)((ULONG_PTR)PvMemoryExtensionPointerTable[ExtensionIndex]+(GuestAddress-ExtensionBase)),CopyLength);
+			if(RemainderLength)return PvReadGuestMemory(0,ExtensionBase+PvExtendedFreeMemorySize,(PVOID)((ULONG_PTR)Buffer+CopyLength),RemainderLength,FALSE,0);
+		}
+		return 0;
+	}
+	return 0xFFFFFFFF;
 }
 
 NOIR_STATUS PvPrintGeneralPurposeRegisters(IN ULONG32 VpIndex)
@@ -639,6 +717,11 @@ BOOL PvLoadParavirtualizedKernel()
 			PvPrintConsoleA("DOS Signature of PV-Kernel Image mismatch!\n");
 		CloseHandle(hFile);
 	}
+	if(bRet)
+	{
+		WCHAR PdbPath[256];
+		PvdLocateImageDebugDatabasePath(PvPagingStructuresBase,PvBootingModuleGva,PdbPath,sizeof(PdbPath));
+	}
 	return bRet;
 }
 
@@ -653,7 +736,8 @@ NOIR_STATUS PvInitializeVirtualMachine(IN ULONG32 VpCount)
 		PvCriticalRange=PageAlloc(PvCriticalRangeSize);
 		PvPagingStructures=PageAlloc(PvPagingStructuresSize);
 		PvBasicFreeMemory=PageAlloc(PvBasicFreeMemorySize);
-		if(PvCriticalRange && PvPagingStructures && PvBasicFreeMemory)
+		PvMemoryExtensionPointerTable=MemAlloc(sizeof(PVOID)*PvLimitOfMemoryExtensions);
+		if(PvCriticalRange && PvPagingStructures && PvBasicFreeMemory && PvMemoryExtensionPointerTable)
 		{
 			BOOL b1=LockPage(PvCriticalRange,PvCriticalRangeSize);
 			BOOL b2=LockPage(PvPagingStructures,PvPagingStructuresSize);

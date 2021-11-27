@@ -19,6 +19,8 @@ echo ============Start Compiling============
 echo Compiling User Hypervisor for Paravirtualization....
 cl ..\src\hv_stack\windows\pvmisc.c /I"%incpath%\shared" /I"%incpath%\um" /I"%incpath%\ucrt" /I"%ddkpath%\include" /Zi /nologo /W3 /WX /Od /Oi /D"_AMD64_" /D"_M_AMD64" /D"_WIN64" /D"_UNICODE" /D"UNICODE" /Zc:wchar_t /std:c17 /FAcs /Fa"%objpath%\hv_stack\pvmisc.cod" /Fo"%objpath%\hv_stack\pvmisc.obj" /Fd"%objpath%\hv_stack\vc140.pdb" /GS- /Qspectre /TC /c /errorReport:queue
 
+cl ..\src\hv_stack\windows\debug_agent.c /I"%incpath%\shared" /I"%incpath%\um" /I"%incpath%\ucrt" /I"%ddkpath%\include" /Zi /nologo /W3 /WX /Od /Oi /D"_AMD64_" /D"_M_AMD64" /D"_WIN64" /D"_UNICODE" /D"UNICODE" /Zc:wchar_t /std:c17 /FAcs /Fa"%objpath%\hv_stack\debug_agent.cod" /Fo"%objpath%\hv_stack\debug_agent.obj" /Fd"%objpath%\hv_stack\vc140.pdb" /GS- /Qspectre /TC /c /errorReport:queue
+
 cl ..\src\hv_stack\windows\pvcvm.c /I"%incpath%\shared" /I"%incpath%\um" /I"%incpath%\ucrt" /I"%ddkpath%\include" /I"..\header" /Zi /nologo /W3 /WX /Od /Oi /D"_AMD64_" /D"_M_AMD64" /D"_WIN64" /D"_UNICODE" /D"UNICODE" /Zc:wchar_t /std:c17 /FAcs /Fa"%objpath%\hv_stack\pvcvm.cod" /Fo"%objpath%\hv_stack\pvcvm.obj" /Fd"%objpath%\hv_stack\vc140.pdb" /GS- /Qspectre /TC /c /errorReport:queue
 
 cl ..\src\hv_stack\windows\main.c /I"%incpath%\shared" /I"%incpath%\um" /I"%incpath%\ucrt" /I"%ddkpath%\include" /I"..\header" /Zi /nologo /W3 /WX /Od /Oi /D"_AMD64_" /D"_M_AMD64" /D"_WIN64" /D"_UNICODE" /D"UNICODE" /Zc:wchar_t /std:c17 /FAcs /Fa"%objpath%\hv_stack\main.cod" /Fo"%objpath%\hv_stack\main.obj" /Fd"%objpath%\hv_stack\vc140.pdb" /GS- /Qspectre /TC /c /errorReport:queue
@@ -39,7 +41,7 @@ echo Compiling Paravirtualized Console for Guest...
 cl ..\src\pv_console\windows\main.c /I"%incpath%\shared" /I"%incpath%\um" /I"%incpath%\ucrt" /I"%ddkpath%\include" /Zi /nologo /W3 /WX /Od /Oi /D"_AMD64_" /D"_M_AMD64" /D"_WIN64" /D"_UNICODE" /D"UNICODE" /Zc:wchar_t /std:c17 /FAcs /Fa"%objpath%\pv_console\main.cod" /Fo"%objpath%\pv_console\main.obj" /Fd"%objpath%\pv_console\vc140.pdb" /GS- /Qspectre /TC /c /errorReport:queue
 
 echo ============Start Linking============
-link "%objpath%\hv_stack\main.obj" "%objpath%\hv_stack\pvcvm.obj" "%objpath%\hv_stack\pvmisc.obj" "%objpath%\hv_stack\version.res" /LIBPATH:"%libpath%\um\x64" /LIBPATH:"%libpath%\ucrt\x64" /LIBPATH:"%ddkpath%\lib\x64" /LIBPATH:"%dbgpath%\lib\x64" "ntdll.lib" "..\header\lib\x64\NoirCvmApi.lib" /NOLOGO /DEBUG /INCREMENTAL:NO /PDB:"%binpath%\NoirPvCuda.pdb" /OUT:"%binpath%\NoirPvCuda.exe" /SUBSYSTEM:CONSOLE /Machine:X64 /ERRORREPORT:QUEUE
+link "%objpath%\hv_stack\main.obj" "%objpath%\hv_stack\pvcvm.obj" "%objpath%\hv_stack\pvmisc.obj" "%objpath%\hv_stack\debug_agent.obj" "%objpath%\hv_stack\version.res" /LIBPATH:"%libpath%\um\x64" /LIBPATH:"%libpath%\ucrt\x64" /LIBPATH:"%ddkpath%\lib\x64" /LIBPATH:"%dbgpath%\lib\x64" "ntdll.lib" "dbghelp.lib" "..\header\lib\x64\NoirCvmApi.lib" /NOLOGO /DEBUG /INCREMENTAL:NO /PDB:"%binpath%\NoirPvCuda.pdb" /OUT:"%binpath%\NoirPvCuda.exe" /SUBSYSTEM:CONSOLE /Machine:X64 /ERRORREPORT:QUEUE
 
 link "%objpath%\pv_kernel\kernel_entry.obj" "%objpath%\pv_kernel\interrupt.obj" "%objpath%\pv_kernel\syscall.obj" /BASE:0xFFFF800000200000 /NOLOGO /DEBUG /INCREMENTAL:NO /PDB:"%binpath%\pv_kernel.pdb" /OUT:"%binpath%\pv_kernel.exe" /NODEFAULTLIB /SUBSYSTEM:NATIVE /ENTRY:"PvKernelEntry" /Machine:X64 /ERRORREPORT:QUEUE
 

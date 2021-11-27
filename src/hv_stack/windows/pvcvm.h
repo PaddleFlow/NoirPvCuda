@@ -25,6 +25,8 @@
 #define KGDT_USER_DATA				0x58
 #define KGDT_USER_CODE64			0x60
 
+#define PvDefaultMaxMemoryExtension	15		// Default limit of memory extensions. (Default: 3.75 GiB)
+
 #define PvCriticalRangePages		512
 #define PvPagingStructuresPages		32256
 #define PvBasicFreeMemoryPages		32768
@@ -33,7 +35,7 @@
 #define PvCriticalRangeSize			PvCriticalRangePages*PAGE_SIZE
 #define PvPagingStructuresSize		PvPagingStructuresPages*PAGE_SIZE
 #define PvBasicFreeMemorySize		PvBasicFreeMemoryPages*PAGE_SIZE
-#define PvExtendedFreeMemorySizee	PvExtendedFreeMemoryPages*PAGE_SIZE
+#define PvExtendedFreeMemorySize	PvExtendedFreeMemoryPages*PAGE_SIZE
 
 #define PvCriticalRangeBase			0x0
 #define PvPagingStructuresBase		0x200000
@@ -79,6 +81,8 @@ BOOL PvReadGuestStdIn(OUT PVOID Buffer,IN ULONG Size);
 BOOL PvWriteGuestStdOut(IN PVOID Buffer,IN ULONG Size);
 BOOL PvWriteGuestStdErr(IN PVOID Buffer,IN ULONG Size);
 
+void PvdLocateImageDebugDatabasePath(IN ULONG64 GuestCr3,IN ULONG64 ImageBaseGva,OUT PWSTR DatabasePath,IN ULONG Cch);
+
 extern HANDLE StdIn;
 extern HANDLE StdOut;
 
@@ -88,4 +92,7 @@ CVM_HANDLE PvCvm;
 PVOID PvCriticalRange=NULL;
 PVOID PvPagingStructures=NULL;
 PVOID PvBasicFreeMemory=NULL;
+PVOID* PvMemoryExtensionPointerTable=NULL;
+ULONG PvAllocatedMemoryExtensions=0;
+ULONG PvLimitOfMemoryExtensions=PvDefaultMaxMemoryExtension;
 ULONG64 PvParavirtualizedKernelEntryPoint=PvBootingModuleGva;
