@@ -5,6 +5,7 @@
 #define ConsoleErrorPort	2
 
 #define NOIR_DUMMY_INTERRUPT_VECTOR			0x20
+#define NOIR_TIMER_INTERRUPT_VECTOR			0x21
 
 #define NOIR_HYPERCALL_CODE_SHUTDOWN		0x0
 #define NOIR_HYPERCALL_MEMORY_EXTENSION		0x1
@@ -77,15 +78,30 @@ ULONG PvPrintConsoleW(IN PCWSTR Format,...);
 PVOID MemAlloc(IN SIZE_T Length);
 BOOL MemFree(IN PVOID Memory);
 
+BOOL PvReadGuestStdInAsync(OUT PVOID Buffer,IN ULONG Size,IN OUT LPOVERLAPPED Overlapped);
 BOOL PvReadGuestStdIn(OUT PVOID Buffer,IN ULONG Size);
 BOOL PvWriteGuestStdOut(IN PVOID Buffer,IN ULONG Size);
 BOOL PvWriteGuestStdErr(IN PVOID Buffer,IN ULONG Size);
 
 void PvdLocateImageDebugDatabasePath(IN ULONG64 GuestCr3,IN ULONG64 ImageBaseGva,OUT PWSTR DatabasePath,IN ULONG Cch);
+BOOL PvdLoadSymbolForGuestModule(IN ULONG64 ImageBaseGva,IN ULONG ImageSize,IN HANDLE FileHandle,IN PCSTR ImageName);
+void PvdUnloadSymbolForGuestModule(IN ULONG64 ImageBaseGva);
+
+BOOL PvInitializeTimerHardware(IN LONG64 InterruptInterval);
+void PvFinalizeTimerHardware();
+BOOL PvInitializeFileIoHardware();
+void PvFinalizeFileIoHardware();
 
 extern HANDLE StdIn;
 extern HANDLE StdOut;
 
+extern HANDLE PvTimerEvent;
+extern HANDLE PvFileEvent;
+extern HANDLE PvStdInEvent;
+
+ULONG64 volatile PvTimerSignal=0;
+
+HANDLE PvHardwareEventGroup[3];
 CHAR DummyBuffer[256]={0};
 BYTE DummyPointer=0;
 CVM_HANDLE PvCvm;

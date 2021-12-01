@@ -1,7 +1,144 @@
 #include <Windows.h>
 #include <dbghelp.h>
 #include <strsafe.h>
+#include <search.h>
+#include <string.h>
 #include "debug_agent.h"
+
+int static PvdSymbolSortByNameCallback(const void* a,const void* b)
+{
+	PSYMBOL_INFO SymInfo1=*(PSYMBOL_INFO*)a;
+	PSYMBOL_INFO SymInfo2=*(PSYMBOL_INFO*)b;
+	return strncmp(SymInfo1->Name,SymInfo2->Name,SymInfo1->NameLen<SymInfo2->NameLen?SymInfo1->NameLen:SymInfo2->NameLen);
+}
+
+int static PvdSymbolSortByAddrCallback(const void* a,const void* b)
+{
+	PSYMBOL_INFO SymInfo1=*(PSYMBOL_INFO*)a;
+	PSYMBOL_INFO SymInfo2=*(PSYMBOL_INFO*)b;
+	if(SymInfo1->Address>SymInfo2->Address)
+		return 1;
+	else if(SymInfo1->Address<SymInfo2->Address)
+		return -1;
+	return 0;
+}
+
+BOOL static PvdSymbolEnumerationPass2Callback(IN PSYMBOL_INFO pSymInfo,IN ULONG SymbolSize,IN PVOID UserContext OPTIONAL)
+{
+	// In Pass #2, record symbol information.
+	PIMAGE_SYMBOL_LIST ImgSym=(PIMAGE_SYMBOL_LIST)UserContext;
+	ULONG SymSize=pSymInfo->SizeOfStruct+pSymInfo->NameLen;
+	ImgSym->SortedByAddr[ImgSym->AccumulationIndex]=MemAlloc(SymSize);
+	ImgSym->SortedByName[ImgSym->AccumulationIndex]=MemAlloc(SymSize);
+	if(ImgSym->SortedByAddr[ImgSym->AccumulationIndex] && ImgSym->SortedByName[ImgSym->AccumulationIndex])
+	{
+		RtlMoveMemory(ImgSym->SortedByAddr[ImgSym->AccumulationIndex],pSymInfo,SymSize);
+		RtlMoveMemory(ImgSym->SortedByName[ImgSym->AccumulationIndex],pSymInfo,SymSize);
+		ImgSym->AccumulationIndex++;
+		return TRUE;
+	}
+	return FALSE;
+}
+
+BOOL static PvdSymbolEnumerationPass1Callback(IN PSYMBOL_INFO pSymInfo,IN ULONG SymbolSize,IN PVOID UserContext OPTIONAL)
+{
+	// In Pass #1, check the number of symbols.
+	PIMAGE_SYMBOL_LIST ImgSym=(PIMAGE_SYMBOL_LIST)UserContext;
+	ImgSym->NumberOfSymbols++;
+	return TRUE;
+}
+
+BOOL PvdCreateDebugImage(OUT PIMAGE_SYMBOL_LIST *ImageSymbol)
+{
+	BOOL Result=FALSE;
+	PIMAGE_SYMBOL_LIST ImgSym=MemAlloc(sizeof(IMAGE_SYMBOL_LIST));
+	if(ImgSym)
+	{
+		ImgSym->ModuleInformation.SizeOfStruct=sizeof(IMAGEHLP_MODULE64);
+		AcquireSRWLockExclusive(&PvDebugImageListLock);
+		InsertTailList(&PvDebugImageListHead.List,&ImgSym->List);
+		ReleaseSRWLockExclusive(&PvDebugImageListLock);
+		*ImageSymbol=ImgSym;
+		Result=TRUE;
+	}
+	return Result;
+}
+
+void PvdUnloadSymbolForGuestModule(IN ULONG64 ImageBaseGva)
+{
+	// Search the image and pop it out.
+	PIMAGE_SYMBOL_LIST Cur=&PvDebugImageListHead,ImgSym=NULL;
+	// Thread-safety consideration.
+	AcquireSRWLockExclusive(&PvDebugImageListLock);
+	do
+	{
+		if(Cur->ModuleInformation.BaseOfImage==ImageBaseGva)
+		{
+			ImgSym=Cur;
+			RemoveListEntry(&Cur->List);
+			break;
+		}
+		Cur=(PIMAGE_SYMBOL_LIST)Cur->List.Flink;
+	}while(Cur!=&PvDebugImageListHead);
+	ReleaseSRWLockExclusive(&PvDebugImageListLock);
+	// Unload the symbols...
+	if(ImgSym)
+	{
+		SymUnloadModule64(GetCurrentProcess(),ImgSym->ModuleInformation.BaseOfImage);
+		if(ImgSym->SortedByName)
+		{
+			for(ULONG32 i=0;i<ImgSym->NumberOfSymbols;i++)
+				if(ImgSym->SortedByName[i])
+					MemFree(ImgSym->SortedByName[i]);
+			MemFree(ImgSym->SortedByName);
+		}
+		if(ImgSym->SortedByAddr)
+		{
+			for(ULONG32 i=0;i<ImgSym->NumberOfSymbols;i++)
+				if(ImgSym->SortedByAddr[i])
+					MemFree(ImgSym->SortedByAddr[i]);
+			MemFree(ImgSym->SortedByAddr);
+		}
+		MemFree(ImgSym);
+	}
+}
+
+BOOL PvdLoadSymbolForGuestModule(IN ULONG64 ImageBaseGva,IN ULONG ImageSize,IN HANDLE FileHandle,IN PCSTR ImageName)
+{
+	BOOL Result=SymLoadModuleEx(GetCurrentProcess(),FileHandle,ImageName,NULL,ImageBaseGva,ImageSize,NULL,0)==ImageBaseGva;
+	if(Result)
+	{
+		PIMAGE_SYMBOL_LIST ImgSym=NULL;
+		Result=PvdCreateDebugImage(&ImgSym);
+		if(Result)
+		{
+			Result=SymGetModuleInfo64(GetCurrentProcess(),ImageBaseGva,&ImgSym->ModuleInformation);
+			if(Result)
+			{
+				// Enumeration Pass #1: Check the number of symbols.
+				Result=SymEnumSymbols(GetCurrentProcess(),ImageBaseGva,NULL,PvdSymbolEnumerationPass1Callback,ImgSym);
+				if(Result)
+				{
+					// Allocate arrays for symbols.
+					ImgSym->SortedByAddr=MemAlloc(sizeof(PSYMBOL_INFO)*ImgSym->NumberOfSymbols);
+					ImgSym->SortedByName=MemAlloc(sizeof(PSYMBOL_INFO)*ImgSym->NumberOfSymbols);
+					// Enumeration Pass #2: Record information for symbols.
+					if(ImgSym->SortedByAddr && ImgSym->SortedByName)
+						Result=SymEnumSymbols(GetCurrentProcess(),ImageBaseGva,NULL,PvdSymbolEnumerationPass2Callback,ImgSym);
+					else
+						Result=FALSE;
+					if(Result)
+					{
+						// Sort these symbols for binary searching.
+						qsort(ImgSym->SortedByAddr,ImgSym->NumberOfSymbols,sizeof(PSYMBOL_INFO),PvdSymbolSortByAddrCallback);
+						qsort(ImgSym->SortedByName,ImgSym->NumberOfSymbols,sizeof(PSYMBOL_INFO),PvdSymbolSortByNameCallback);
+					}
+				}
+			}
+		}
+	}
+	return Result;
+}
 
 void PvdLocateImageDebugDatabasePath(IN ULONG64 GuestCr3,IN ULONG64 ImageBaseGva,OUT PWSTR DatabasePath,IN ULONG Cch)
 {
@@ -36,17 +173,9 @@ void PvdLocateImageDebugDatabasePath(IN ULONG64 GuestCr3,IN ULONG64 ImageBaseGva
 										if(CvDebug->Signature!=IMAGE_CODEVIEW_SIGNATURE)
 											PvPrintConsoleA("Debug Signature Mismatch!\n");
 										else
-										{
 											MultiByteToWideChar(CP_UTF8,0,CvDebug->Path,DbgDir[i].SizeOfData-24,DatabasePath,Cch);
-											PvPrintConsoleA("The PDB File is located in %ws\n",DatabasePath);
-										}
 										MemFree(CvDebug);
 									}
-									break;
-								}
-								default:
-								{
-									PvPrintConsoleA("Unknown Debug Type %u is detected!\n",DbgDir[i].Type);
 									break;
 								}
 							}
@@ -61,6 +190,8 @@ void PvdLocateImageDebugDatabasePath(IN ULONG64 GuestCr3,IN ULONG64 ImageBaseGva
 
 BOOL PvdInitialize()
 {
+	InitializeListHead(&PvDebugImageListHead.List);
+	SymSetOptions(SYMOPT_LOAD_LINES);
 	return SymInitializeW(GetCurrentProcess(),NULL,FALSE);
 }
 

@@ -13,6 +13,7 @@
 #define MSR_KGS_BASE		0xC0000102
 
 #define NOIR_DUMMY_INTERRUPT_VECTOR		0x20
+#define NOIR_TIMER_INTERRUPT_VECTOR		0x21
 
 #define HelloString			"Hello World from Paravirtualized Kernel!\n"
 
@@ -122,6 +123,7 @@ typedef struct _PVUTEB64
 #pragma pack()
 
 void PvDummyInterrupt(void);
+void PvTimerInterrupt(void);
 void PvSystemCall64(void);
 
 PVOID PvSystemCallServiceList[1]={NULL};

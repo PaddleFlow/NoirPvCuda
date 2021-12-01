@@ -35,3 +35,10 @@ The thread of console input allows the Guest to access virtual console inputs. I
 
 ## Control-Flow Design
 To emulate external interrupts, not only should the developer master the use of event injection, but the developer should also master how to intercept interrupt windows. An interrupt window would allow further delivery of interrupts, so when an interrupt window occurs, an queued external event should be dequeued and injected to the Guest.
+
+## File I/O Paravirtualization
+This project would adopt a file path system similar to the one of Linux:
+
+- The `/` directory is the root directory. The location of the root directory on the host is subject to be configured by User Hypervisor.
+- The `/mnt/` directory is the mount directory. User Hypervisor can configure other directories on the host to be accessible by Guest via mounting them.
+- The `/dev/` directory is the device directory. Paravirtualized devices are located in this directory. Layout in this directory should follow the one in a real Linux machine.

@@ -3,6 +3,34 @@
 #include <stdarg.h>
 #include "pvmisc.h"
 
+void InitializeListHead(OUT PLIST_ENTRY ListHead)
+{
+	ListHead->Flink=ListHead->Blink=ListHead;
+}
+
+void InsertHeadList(IN OUT PLIST_ENTRY ListHead,IN OUT PLIST_ENTRY Entry)
+{
+	Entry->Flink=ListHead->Flink;
+	Entry->Blink=ListHead;
+	ListHead->Flink->Blink=Entry;
+	ListHead->Flink=Entry;
+}
+
+void InsertTailList(IN OUT PLIST_ENTRY ListHead,IN OUT PLIST_ENTRY Entry)
+{
+	Entry->Flink=ListHead;
+	Entry->Blink=ListHead->Blink;
+	ListHead->Blink->Flink=Entry;
+	ListHead->Blink=Entry;
+}
+
+void RemoveListEntry(IN OUT PLIST_ENTRY Entry)
+{
+	Entry->Flink->Blink=Entry->Blink;
+	Entry->Blink->Flink=Entry->Flink;
+	Entry->Flink=Entry->Blink=Entry;
+}
+
 void PvInitializeConsole()
 {
 	StdIn=GetStdHandle(STD_INPUT_HANDLE);
@@ -34,6 +62,12 @@ ULONG PvGenerateSeed()
 	Hi=Time.wMonth+Time.wDay+Time.wMinute+Time.wMilliseconds;
 	Seed=(Hi<<16)|Lo;
 	return Seed;
+}
+
+BOOL PvReadGuestStdInAsync(OUT PVOID Buffer,IN ULONG Size,IN OUT LPOVERLAPPED Overlapped)
+{
+	DWORD ReadSize;
+	return ReadFile(GuestStdInPipe,Buffer,Size,&ReadSize,Overlapped);
 }
 
 BOOL PvReadGuestStdIn(OUT PVOID Buffer,IN ULONG Size)
@@ -81,10 +115,13 @@ BOOL PvCreateGuestConsole()
 	StringCbPrintfA(StdOutPipe,sizeof(StdOutPipe),"\\\\.\\pipe\\NoirPvCudaGuestStdOut_%u",PipeNumber);
 	StringCbPrintfA(StdErrPipe,sizeof(StdErrPipe),"\\\\.\\pipe\\NoirPvCudaGuestStdErr_%u",PipeNumber);
 	// Blocking accesses should be waiting forever.
+	// Create Event of Guest StdIn.
+	PvStdInEvent=CreateEventA(NULL,TRUE,FALSE,NULL);
+	if(PvStdInEvent==NULL)return FALSE;
 	// Only one instance is allowed.
-	GuestStdInPipe=CreateNamedPipeA(StdInPipe,PIPE_ACCESS_INBOUND|FILE_FLAG_FIRST_PIPE_INSTANCE,PIPE_TYPE_BYTE,1,0,4096,0xFFFFFFFF,NULL);
-	GuestStdOutPipe=CreateNamedPipeA(StdOutPipe,PIPE_ACCESS_OUTBOUND|FILE_FLAG_FIRST_PIPE_INSTANCE,PIPE_TYPE_BYTE,1,0,4096,0xFFFFFFFF,NULL);
-	GuestStdErrPipe=CreateNamedPipeA(StdErrPipe,PIPE_ACCESS_OUTBOUND|FILE_FLAG_FIRST_PIPE_INSTANCE,PIPE_TYPE_BYTE,1,0,4096,0xFFFFFFFF,NULL);
+	GuestStdInPipe=CreateNamedPipeA(StdInPipe,PIPE_ACCESS_INBOUND|FILE_FLAG_FIRST_PIPE_INSTANCE|FILE_FLAG_OVERLAPPED,PIPE_TYPE_BYTE,1,0,4096,0xFFFFFFFF,NULL);
+	GuestStdOutPipe=CreateNamedPipeA(StdOutPipe,PIPE_ACCESS_OUTBOUND|FILE_FLAG_FIRST_PIPE_INSTANCE|FILE_FLAG_OVERLAPPED,PIPE_TYPE_BYTE,1,0,4096,0xFFFFFFFF,NULL);
+	GuestStdErrPipe=CreateNamedPipeA(StdErrPipe,PIPE_ACCESS_OUTBOUND|FILE_FLAG_FIRST_PIPE_INSTANCE|FILE_FLAG_OVERLAPPED,PIPE_TYPE_BYTE,1,0,4096,0xFFFFFFFF,NULL);
 	if(GuestStdInPipe!=INVALID_HANDLE_VALUE && GuestStdOutPipe!=INVALID_HANDLE_VALUE && GuestStdErrPipe!=INVALID_HANDLE_VALUE)
 	{
 		STARTUPINFOA StartupInfo={0};
@@ -101,6 +138,8 @@ BOOL PvCreateGuestConsole()
 		if(GuestStdOutPipe!=INVALID_HANDLE_VALUE)CloseHandle(GuestStdOutPipe);
 		if(GuestStdErrPipe!=INVALID_HANDLE_VALUE)CloseHandle(GuestStdErrPipe);
 		GuestStdInPipe=GuestStdOutPipe=GuestStdErrPipe=INVALID_HANDLE_VALUE;
+		CloseHandle(PvStdInEvent);
+		PvStdInEvent=NULL;
 		return FALSE;
 	}
 }

@@ -1,6 +1,7 @@
 .code
 
 extern PvDummyPrinter:proc
+extern PvTimerInterruptHandler:proc
 
 gpr_stack_size equ 80h
 
@@ -60,6 +61,16 @@ popaq macro
 	add rsp,gpr_stack_size
 
 endm
+
+PvTimerInterrupt proc
+
+	; Timer interrupt occured!
+	pushaq
+	call PvTimerInterruptHandler
+	popaq
+	iretq
+
+PvTimerInterrupt endp
 
 PvDummyInterrupt proc
 

@@ -41,6 +41,9 @@ void PvFinalizeVirtualMachine()
 		}
 	}
 	MemFree(PvMemoryExtensionPointerTable);
+	PvFinalizeTimerHardware();
+	PvFinalizeFileIoHardware();
+	PvdUnloadSymbolForGuestModule(PvBootingModuleGva);
 }
 
 // Albeit IDT will be initialized by paravirtualized kernel, we should initialize GDT for guest.
@@ -549,7 +552,9 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 	if(st==NOIR_SUCCESS)
 	{
 		NOIR_GPR_STATE GprState={0};
+		OVERLAPPED StdInOverlapped={0};
 		BOOLEAN ContinueExecution=TRUE;
+		StdInOverlapped.hEvent=PvStdInEvent;
 		GprState.Rsp=(ULONG64)PvBootingModuleGva+512*PAGE_SIZE-0x20;
 		GprState.Rcx=GprState.Rsp-8*PAGE_SIZE+0x20;
 		*(PULONG32)((ULONG_PTR)PvBasicFreeMemory+504*PAGE_SIZE)=0xC3D9010F;
@@ -584,8 +589,40 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 					if(_bittest64(&ExitContext.Rflags,RFLAGS_IF))
 					{
 						ULONG64 NextRip=ExitContext.Rip+ExitContext.VpState.InstructionLength;
-						PvReadGuestStdIn(DummyBuffer,sizeof(DummyBuffer));
-						NoirSetEventInjection(PvCvm,0,TRUE,NOIR_DUMMY_INTERRUPT_VECTOR,NoirEventTypeExternalInterrupt,1,FALSE,0);
+						// Wait for external hardwares to send interrupts.
+						PvReadGuestStdInAsync(DummyBuffer,sizeof(DummyBuffer),&StdInOverlapped);
+						ULONG WaitResult=WaitForMultipleObjects(3,PvHardwareEventGroup,FALSE,INFINITE);
+						PvPrintConsoleA("vCPU is halted, waiting for external events...\n");
+						switch(WaitResult)
+						{
+							case WAIT_OBJECT_0:
+							{
+								// There is something in stdin.
+								NoirSetEventInjection(PvCvm,0,TRUE,NOIR_DUMMY_INTERRUPT_VECTOR,NoirEventTypeExternalInterrupt,1,FALSE,0);
+								// StdIn Event requires manual resetting.
+								ResetEvent(PvStdInEvent);
+								break;
+							}
+							case WAIT_OBJECT_0+1:
+							{
+								// Timer interrupt is to be injected.
+								NoirSetEventInjection(PvCvm,0,TRUE,NOIR_TIMER_INTERRUPT_VECTOR,NoirEventTypeExternalInterrupt,1,FALSE,0);
+								break;
+							}
+							case WAIT_OBJECT_0+2:
+							{
+								// File I/O interrupt is to be injected.
+								// File I/O Event requires manual resetting.
+								ResetEvent(PvFileEvent);
+								break;
+							}
+							default:
+							{
+								PvPrintConsoleA("Fatal: Unknown event wait result: 0x%X!\n",WaitResult);
+								ContinueExecution=FALSE;
+								break;
+							}
+						}
 						NoirEditVirtualProcessorRegister(PvCvm,0,NoirCvmInstructionPointer,&NextRip,sizeof(NextRip));
 					}
 					else
@@ -604,7 +641,7 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 					}
 					else
 					{
-						PvPrintConsoleA("Failed to translate GVA!\n");
+						PvPrintConsoleA("Fatal: Failed to translate GVA in I/O Handler! Port=0x%X\n",ExitContext.Io.Port);
 						ContinueExecution=FALSE;
 					}
 					break;
@@ -698,13 +735,14 @@ BOOL PvLoadParavirtualizedKernel()
 								PULONG64 RelocAddress=(PULONG64)((ULONG_PTR)PvBasicFreeMemory+RelocBlock->VirtualAddress+MiniOffset);
 								*RelocAddress+=PvBootingModuleGva-NtHead.OptionalHeader.ImageBase;
 							}
-							else
-								PvPrintConsoleA("Unknown relocation type %u!\n",RelocData[i]>>12);
 						}
 						RelocBlock=(PIMAGE_BASE_RELOCATION)((ULONG_PTR)RelocBlock+RelocBlock->SizeOfBlock);
 					}while(RelocBlock->VirtualAddress);
 				}
 				PvParavirtualizedKernelEntryPoint+=NtHead.OptionalHeader.AddressOfEntryPoint;
+				// Finally, load debug image of the Guest kernel booting module.
+				if(PvdLoadSymbolForGuestModule(PvBootingModuleGva,0,hFile,"pv_kernel.exe")==FALSE)
+					PvPrintConsoleA("Failed to load symbols for Guest Kernel Booting Module!\n");
 				bRet=TRUE;
 			}
 			else
@@ -716,11 +754,6 @@ BOOL PvLoadParavirtualizedKernel()
 		else
 			PvPrintConsoleA("DOS Signature of PV-Kernel Image mismatch!\n");
 		CloseHandle(hFile);
-	}
-	if(bRet)
-	{
-		WCHAR PdbPath[256];
-		PvdLocateImageDebugDatabasePath(PvPagingStructuresBase,PvBootingModuleGva,PdbPath,sizeof(PdbPath));
 	}
 	return bRet;
 }
@@ -775,6 +808,12 @@ NOIR_STATUS PvInitializeVirtualMachine(IN ULONG32 VpCount)
 					st=PvInitializeVirtualProcessor(i);
 					PvPrintConsoleA("vCPU %u Initialization Status: 0x%X\n",i,st);
 				}
+				// Initialize Virtual Hardware...
+				PvInitializeTimerHardware(233);
+				PvInitializeFileIoHardware();
+				PvHardwareEventGroup[0]=PvStdInEvent;
+				PvHardwareEventGroup[1]=PvTimerEvent;
+				PvHardwareEventGroup[2]=PvFileEvent;
 			}
 			else
 			{

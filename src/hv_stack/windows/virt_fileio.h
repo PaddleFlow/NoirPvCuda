@@ -16,3 +16,4 @@ typedef struct _PV_FILE_ASYNC_IO
 SRWLOCK AsyncFileIoLock=SRWLOCK_INIT;
 PPV_FILE_ASYNC_IO AsyncFileIoHead=NULL;
 PPV_FILE_ASYNC_IO AsyncFileIoTail=NULL;
+HANDLE PvFileEvent=NULL;

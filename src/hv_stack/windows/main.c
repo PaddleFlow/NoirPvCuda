@@ -8,6 +8,7 @@ int main(int argc,char* argv[],char* envp[])
 {
 	NOIR_STATUS st;
 	NoirInitializeLibrary();
+	PvdInitialize();
 	PvInitializeConsole();
 	PvPrintConsoleA("Welcome to Paravirtualized Cuda!\n");
 	PvCreateGuestConsole();
@@ -28,5 +29,6 @@ int main(int argc,char* argv[],char* envp[])
 	NoirFinalizeLibrary();
 	system("pause");
 	PvTerminateGuestConsole();
+	PvdFinalize();
 	return 0;
 }

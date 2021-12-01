@@ -21,6 +21,13 @@ void PvDummyPrinter()
 	Input[254]='\n';
 	Input[255]='\0';
 	__outbytestring(ConsoleOutputPort,Input,Length);
+	NoirHypercall(NOIR_HYPERCALL_CODE_SHUTDOWN);
+}
+
+void PvTimerInterruptHandler()
+{
+	CHAR Output[]="Timer Interrupt Occured!\n";
+	__outbytestring(ConsoleOutputPort,Output,sizeof(Output));
 }
 
 void PvSetupSystemLinkage()
@@ -41,18 +48,38 @@ void PvSetupInterruptHandlers()
 	PKIDTENTRY64 IdtEntry;
 	KDESCRIPTOR IdtR;
 	__sidt(&IdtR);
-	IdtEntry=(PKIDTENTRY64)(IdtR.Base+0x200);
+	IdtEntry=(PKIDTENTRY64)IdtR.Base;
 	// Initialize Dummy Interrupt Vector.
-	*(PULONG64)((ULONG_PTR)IdtEntry+4)=(ULONG64)PvDummyInterrupt;
-	IdtEntry->OffsetLow=(USHORT)PvDummyInterrupt;
-	IdtEntry->Selector=0x10;
-	IdtEntry->IST=0;
-	IdtEntry->Reserved1=0;
-	IdtEntry->Type=0xE;		// 64-Bit Interrupt Gate.
-	IdtEntry->Reserved2=0;
-	IdtEntry->DPL=0;
-	IdtEntry->Present=1;
-	IdtEntry->Reserved=0;
+	*(PULONG64)((ULONG_PTR)&IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR]+4)=(ULONG64)PvDummyInterrupt;
+	IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR].OffsetLow=(USHORT)PvDummyInterrupt;
+	IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR].Selector=0x10;
+	IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR].IST=0;
+	IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR].Reserved1=0;
+	IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR].Type=0xE;		// 64-Bit Interrupt Gate.
+	IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR].Reserved2=0;
+	IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR].DPL=0;
+	IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR].Present=1;
+	IdtEntry[NOIR_DUMMY_INTERRUPT_VECTOR].Reserved=0;
+	// Initialize Timer Interrupt Vector.
+	*(PULONG64)((ULONG_PTR)&IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR]+4)=(ULONG64)PvTimerInterrupt;
+	IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR].OffsetLow=(USHORT)PvTimerInterrupt;
+	IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR].Selector=0x10;
+	IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR].IST=0;
+	IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR].Reserved1=0;
+	IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR].Type=0xE;		// 64-Bit Interrupt Gate.
+	IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR].Reserved2=0;
+	IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR].DPL=0;
+	IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR].Present=1;
+	IdtEntry[NOIR_TIMER_INTERRUPT_VECTOR].Reserved=0;
+}
+
+void PvIdleLoop()
+{
+	// Enter an infinite loop to schedule tasks.
+	while(1)
+	{
+		__halt();
+	}
 }
 
 void PvKernelEntry(IN NOIR_HYPERCALL HypercallFunction)
@@ -67,7 +94,8 @@ void PvKernelEntry(IN NOIR_HYPERCALL HypercallFunction)
 	// Enable interrupts. Otherwise the processor might be permanently blocked.
 	_enable();
 	// Initialization complete, start thread scheduling.
-	__halt();
+	PvIdleLoop();
+	// Never returns.
 	// Use a shutdown hypercall to directly exit.
 	NoirHypercall(NOIR_HYPERCALL_CODE_SHUTDOWN);
 	// Return from this function would trigger a page-fault,
