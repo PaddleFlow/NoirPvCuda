@@ -76,10 +76,7 @@ void PvSetupInterruptHandlers()
 void PvIdleLoop()
 {
 	// Enter an infinite loop to schedule tasks.
-	while(1)
-	{
-		__halt();
-	}
+	while(1)__halt();
 }
 
 void PvKernelEntry(IN NOIR_HYPERCALL HypercallFunction)
@@ -89,6 +86,10 @@ void PvKernelEntry(IN NOIR_HYPERCALL HypercallFunction)
 	PvSetupInterruptHandlers();
 	// Setup System Linkage.
 	PvSetupSystemLinkage();
+	// Initialize Memory Manager.
+	MmInitializeMemoryManager();
+	// Initialize Process Manager.
+	PspInitialzeProcessManager();
 	// Use "rep outsb" instruction to output string to paravirtualized console.
 	__outbytestring(ConsoleOutputPort,HelloString,sizeof(HelloString));
 	// Enable interrupts. Otherwise the processor might be permanently blocked.

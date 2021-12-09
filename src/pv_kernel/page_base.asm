@@ -23,7 +23,9 @@ org 0x200000
 ; 00000000`00200000	+---------------------------+
 ;					| Paging Structures			|
 ; 00000000`08000000 +---------------------------+
-; 					| Free Memory				|
+; 					| Basic Free Memory			|
+; 00000000`10000000 +---------------------------+
+;					| Extended Free Memory		|
 ;					+---------------------------+
 
 ; The first page will starts with the PML4E.
@@ -31,9 +33,12 @@ pml4e_base:
 times 256 dq 0		; User-Mode Virtual Memory Space
 ; Booting modules
 dq booting_module_pdpte_base+3	; 1GiB should suffice for initial state.
-times 236 dq 0
-dq page_structure_pdpte_base+3	; 1GiB should suffice for initial state.
-times 18 dq 0
+times 235 dq 0
+dq alloc_bitmap_pdpte_base+3		; 1GiB should suffice for initial state.
+dq page_structure_pdpte_base+3		; 1GiB should suffice for initial state.
+times 2 dq 0
+dq init_system_pool_pdpte_base+3	; 1GiB should suffice for initial state.
+times 15 dq 0
 
 booting_module_pdpte_base:
 dq booting_module_pde_base+3
@@ -41,6 +46,14 @@ times 511 dq 0
 
 page_structure_pdpte_base:
 dq page_structure_pde_base+3
+times 511 dq 0
+
+alloc_bitmap_pdpte_base:
+dq alloc_bitmap_pde_base+3
+times 511 dq 0
+
+init_system_pool_pdpte_base:
+dq init_system_pool_pde_base+3
 times 511 dq 0
 
 booting_module_pde_base:
@@ -62,3 +75,19 @@ dq i
 ; dq 0x06200087,0x06400087,0x06600087,0x06800087,0x06A00087,0x06C00087,0x06E00087,0x07000087
 ; dq 0x07200087,0x07400087,0x07600087,0x07800087,0x07A00087,0x07C00087,0x07E00087
 times 449 dq 0
+
+alloc_bitmap_pde_base:
+dq alloc_bitmap_pte_base+3
+times 511 dq 0
+
+init_system_pool_pde_base:
+dq init_system_pool_pte_base+3
+times 511 dq 0
+
+alloc_bitmap_pte_base:
+dq 0x08200003
+times 511 dq 0
+
+init_system_pool_pte_base:
+dq 0x08201003
+times 511 dq 0

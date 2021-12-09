@@ -140,6 +140,31 @@ BOOL PvdLoadSymbolForGuestModule(IN ULONG64 ImageBaseGva,IN ULONG ImageSize,IN H
 	return Result;
 }
 
+BOOL PvdGetSymbolNameWithLineInfo(IN ULONG64 Address,OUT PSTR Buffer,IN SIZE_T BufferSize)
+{
+	BOOL Result=FALSE;
+	PSYMBOL_INFO SymInfo=MemAlloc(1024);
+	if(SymInfo)
+	{
+		ULONG64 Disp;
+		SymInfo->SizeOfStruct=sizeof(SYMBOL_INFO);
+		SymInfo->MaxNameLen=1024-sizeof(SYMBOL_INFO)+1;
+		Result=SymFromAddr(GetCurrentProcess(),Address,&Disp,SymInfo);
+		if(Result)
+		{
+			IMAGEHLP_LINE64 LineInfo;
+			PSTR Remainder;
+			SIZE_T RemainderLength;
+			StringCbPrintfExA(Buffer,BufferSize-1,&Remainder,&RemainderLength,0,"%s+0x%llX",SymInfo->Name,Disp);
+			LineInfo.SizeOfStruct=sizeof(LineInfo);
+			if(SymGetLineFromAddr64(GetCurrentProcess(),Address,(PULONG)&Disp,&LineInfo))
+				StringCbPrintfA(Remainder,RemainderLength," [%s] @ %u",LineInfo.FileName,LineInfo.LineNumber);
+		}
+		MemFree(SymInfo);
+	}
+	return Result;
+}
+
 void PvdLocateImageDebugDatabasePath(IN ULONG64 GuestCr3,IN ULONG64 ImageBaseGva,OUT PWSTR DatabasePath,IN ULONG Cch)
 {
 	IMAGE_DOS_HEADER DosHead;

@@ -20,13 +20,13 @@ BOOL PvCloseFile(IN HANDLE FileHandle)
 
 BOOL PvReadFile(IN HANDLE FileHandle,OUT PVOID Buffer,IN ULONG NumberOfBytes)
 {
-	ULONG64 Result=NoirHypercall(NOIR_HYPERCALL_FILE_READ,FileHandle,Buffer,NumberOfBytes);
+	ULONG64 Result=NoirHypercall(NOIR_HYPERCALL_FILE_READ_SYNC,FileHandle,Buffer,NumberOfBytes);
 	return (BOOL)Result;
 }
 
 BOOL PvWriteFile(IN HANDLE FileHandle,IN PVOID Buffer,IN ULONG NumberOfBytes)
 {
-	ULONG64 Result=NoirHypercall(NOIR_HYPERCALL_FILE_WRITE,FileHandle,Buffer,NumberOfBytes);
+	ULONG64 Result=NoirHypercall(NOIR_HYPERCALL_FILE_WRITE_SYNC,FileHandle,Buffer,NumberOfBytes);
 	return (BOOL)Result;
 }
 

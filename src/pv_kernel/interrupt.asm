@@ -65,9 +65,6 @@ endm
 PvTimerInterrupt proc
 
 	; Timer interrupt occured!
-	pushaq
-	call PvTimerInterruptHandler
-	popaq
 	iretq
 
 PvTimerInterrupt endp

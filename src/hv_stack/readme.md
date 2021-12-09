@@ -36,6 +36,13 @@ The thread of console input allows the Guest to access virtual console inputs. I
 ## Control-Flow Design
 To emulate external interrupts, not only should the developer master the use of event injection, but the developer should also master how to intercept interrupt windows. An interrupt window would allow further delivery of interrupts, so when an interrupt window occurs, an queued external event should be dequeued and injected to the Guest.
 
+## Interrupt Logic
+A vCPU can be either scheduled in (running on a logical core) or scheduled out (staying halted). An event can only be injected if the vCPU is scheduled out. Therefore, cancel the execution of vCPU if scheduled in.
+
+If a vCPU enters a halted state via `hlt` instruction, it should call a synchronous function to wait for any signals from virtual hardwares.
+
+If a vCPU enters a state capable of taking interrupts after an interrupt is taken, a VM-Exit of interrupt-window will issued. The vCPU should check if there is pending interrupts and get them injected serially.
+
 ## File I/O Paravirtualization
 This project would adopt a file path system similar to the one of Linux:
 

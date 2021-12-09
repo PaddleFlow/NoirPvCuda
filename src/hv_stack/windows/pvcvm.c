@@ -1,6 +1,7 @@
 #include <Windows.h>
 #include <dbghelp.h>
 #include <strsafe.h>
+#include <malloc.h>
 #include <NoirCvmApi.h>
 #include "pvcvm.h"
 #include "pvproc.h"
@@ -274,6 +275,14 @@ ULONG32 PvTranslateGvaToGpa64(IN ULONG64 GuestCr3,IN ULONG64 Gva,IN ULONG64 Acce
 	return 1;
 }
 
+ULONG32 PvTranslateGvaToHva64(IN ULONG64 GuestCr3,IN ULONG64 Gva,IN ULONG64 Access,OUT PULONG64 Hva)
+{
+	ULONG64 Gpa;
+	ULONG32 ErrCode=PvTranslateGvaToGpa64(GuestCr3,Gva,Access,&Gpa);
+	if(ErrCode==0)*Hva=PvTranslateGpaToHva(Gpa);
+	return ErrCode;
+}
+
 ULONG PvReadGuestMemory(IN ULONG64 GuestCr3,IN ULONG64 GuestAddress,OUT PVOID Buffer,IN ULONG Size,IN BOOLEAN VirtualAddress,IN ULONG64 Access)
 {
 	ULONG64 Gpa;
@@ -492,8 +501,10 @@ BOOLEAN PvHandleHypercall(IN ULONG32 VpIndex,IN PNOIR_CVM_EXIT_CONTEXT ExitConte
 {
 	BOOLEAN Result=FALSE;
 	NOIR_GPR_STATE GprState;
-	NOIR_STATUS st=NoirViewVirtualProcessorRegister(PvCvm,0,NoirCvmGeneralPurposeRegister,&GprState,sizeof(GprState));
-	if(st==NOIR_SUCCESS)
+	NOIR_CR_STATE CrState;
+	NOIR_STATUS st1=NoirViewVirtualProcessorRegister(PvCvm,0,NoirCvmGeneralPurposeRegister,&GprState,sizeof(GprState));
+	NOIR_STATUS st2=NoirViewVirtualProcessorRegister(PvCvm,0,NoirCvmControlRegister,&CrState,sizeof(CrState));
+	if(st1==NOIR_SUCCESS && st2==NOIR_SUCCESS)
 	{
 		switch(GprState.Rcx)
 		{
@@ -514,7 +525,8 @@ BOOLEAN PvHandleHypercall(IN ULONG32 VpIndex,IN PNOIR_CVM_EXIT_CONTEXT ExitConte
 				Option1.QuadPart=GprState.R8;
 				Option2.QuadPart=GprState.R9;
 				// Resolve GVA here.
-				GprState.Rax=(ULONG64)CreateFileA(FilePath,Option1.LowPart,Option1.HighPart,NULL,Option2.LowPart,Option2.HighPart,NULL);
+				PvReadGuestMemory(CrState.Cr3,GprState.Rdx,FilePath,sizeof(MAX_PATH),TRUE,1);
+				GprState.Rax=(ULONG64)PvIoCreateFile(FilePath,Option1.LowPart,Option1.HighPart,Option2.LowPart,Option2.HighPart);
 				Result=TRUE;
 				break;
 			}
@@ -524,12 +536,14 @@ BOOLEAN PvHandleHypercall(IN ULONG32 VpIndex,IN PNOIR_CVM_EXIT_CONTEXT ExitConte
 				Result=TRUE;
 				break;
 			}
-			case NOIR_HYPERCALL_FILE_READ:
+			case NOIR_HYPERCALL_FILE_READ_SYNC:
 			{
+				// Read Page-by-Page.
+				GprState.Rax=(ULONG64)PvIoReadFileSynchronous(CrState.Cr3,(HANDLE)GprState.Rdx,(ULONG)GprState.R8,(ULONG)GprState.R9);
 				Result=TRUE;
 				break;
 			}
-			case NOIR_HYPERCALL_FILE_WRITE:
+			case NOIR_HYPERCALL_FILE_WRITE_SYNC:
 			{
 				Result=TRUE;
 				break;
@@ -557,7 +571,7 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 		StdInOverlapped.hEvent=PvStdInEvent;
 		GprState.Rsp=(ULONG64)PvBootingModuleGva+512*PAGE_SIZE-0x20;
 		GprState.Rcx=GprState.Rsp-8*PAGE_SIZE+0x20;
-		*(PULONG32)((ULONG_PTR)PvBasicFreeMemory+504*PAGE_SIZE)=0xC3D9010F;
+		*(PULONG32)((ULONG_PTR)PvBasicFreeMemory+504*PAGE_SIZE)=0xC3D9010F;		// Indicate the hypercall instructions.
 		st=NoirEditVirtualProcessorRegister(PvCvm,0,NoirCvmGeneralPurposeRegister,&GprState,sizeof(GprState));
 		PvPrintConsoleA("General-Purpose Register is initialized successfully!\n");
 		while(ContinueExecution)
@@ -663,14 +677,32 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 				case CvException:
 				{
 					CHAR Cmd[100];
+					CHAR FuncName[MAX_PATH];
 					PvPrintConsoleA("Exception Vector %u is intercepted!\n",ExitContext.Exception.Vector);
 					PvPrintConsoleA("Error Code is valid: 0x%X\n",ExitContext.Exception.ErrorCode);
 					if(ExitContext.Exception.Vector==14)PvPrintConsoleA("#PF Linear Address: 0x%p\n",ExitContext.Exception.PageFaultAddress);
 					PvPrintGeneralPurposeRegisters(0);
 					PvPrintConsoleA("rflags\t\t0x%016llX\n",ExitContext.Rflags);
 					PvPrintConsoleA("rip\t\t0x%016llX\n",ExitContext.Rip);
+					if(PvdGetSymbolNameWithLineInfo(ExitContext.Rip,FuncName,sizeof(FuncName)))
+						PvPrintConsoleA("%s\n",FuncName);
 					StringCbGetsA(Cmd,sizeof(Cmd));
 					ContinueExecution=FALSE;
+					break;
+				}
+				case CvRescission:
+				{
+					if(_interlockedbittestandreset64(&PvTimerSignal,0))
+					{
+						// Timer signal is triggered.
+						NoirSetEventInjection(PvCvm,0,TRUE,NOIR_TIMER_INTERRUPT_VECTOR,NoirEventTypeExternalInterrupt,1,FALSE,0);
+						ResetEvent(PvTimerEvent);
+					}
+					;
+					break;
+				}
+				case CvInterruptWindow:
+				{
 					break;
 				}
 				default:

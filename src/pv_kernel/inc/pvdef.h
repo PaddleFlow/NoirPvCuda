@@ -47,6 +47,9 @@ typedef INT32*	PINT32;
 typedef INT64*	PINT64;
 typedef INTN*	PINTN;
 
+typedef UINTN	SIZE_T;
+typedef UINTN*	PSIZE_T;
+
 typedef union _LARGE_INTEGER
 {
 	struct
@@ -72,6 +75,7 @@ typedef UINTN	ULONG_PTR;
 typedef INTN	LONG_PTR;
 
 typedef BYTE		UCHAR;
+typedef USHORT		WCHAR;
 typedef ULONG32		ULONG;
 typedef ULONG64 	ULONGLONG;
 typedef SBYTE		CHAR;
@@ -91,11 +95,17 @@ typedef LONG64*		PLONG64;
 typedef LONG_PTR*	PLONG_PTR;
 
 typedef UCHAR*		PUCHAR;
+typedef WCHAR*		PWCHAR;
 typedef ULONG*		PULONG;
 typedef ULONGLONG*	PULONGLONG;
 typedef CHAR*		PCHAR;
 typedef LONG*		PLONG;
 typedef LONGLONG	PLONGLONG;
+
+typedef PCHAR		PSTR;
+typedef PWCHAR		PWSTR;
+
+#define UNALIGNED __unaligned
 
 // Parameter passing options
 #define IN

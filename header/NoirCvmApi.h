@@ -234,6 +234,8 @@ typedef enum _NOIR_CVM_INTERCEPT_CODE
 	CvDrAccess=10,
 	CvHypercall=11,
 	CvException=12,
+	CvRescission=13,
+	CvInterruptWindow=14,
 	CvSchedulerExit=0x80000000,
 	CvSchedulerPause=0x80000001
 }NOIR_CVM_INTERCEPT_CODE,*PNOIR_CVM_INTERCEPT_CODE;
@@ -387,6 +389,7 @@ NOIR_STATUS NoirCreateVirtualProcessor(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex
 NOIR_STATUS NoirDeleteVirtualProcessor(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex);
 NOIR_STATUS NoirSetAddressMapping(IN CVM_HANDLE VmHandle,IN PNOIR_ADDRESS_MAPPING MappingInformation);
 NOIR_STATUS NoirRunVirtualProcessor(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex,OUT PNOIR_CVM_EXIT_CONTEXT ExitContext);
+NOIR_STATUS NoirRescindVirtualProcessor(IN CVM_HANDLE VirtualMachine,IN ULONG32 VpIndex);
 NOIR_STATUS NoirEditVirtualProcessorRegister(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex,IN NOIR_CVM_REGISTER_TYPE RegisterType,IN PVOID Buffer,IN ULONG32 BufferSize);
 NOIR_STATUS NoirViewVirtualProcessorRegister(IN CVM_HANDLE VmHandle,IN ULONG32 VpIndex,IN NOIR_CVM_REGISTER_TYPE RegisterType,OUT PVOID Buffer,IN ULONG32 BufferSize);
 NOIR_STATUS NoirSetEventInjection(IN CVM_HANDLE VirtualMachine,IN ULONG32 VpIndex,IN BOOLEAN Valid,IN BYTE Vector,IN BYTE Type,IN BYTE Priority,IN BOOLEAN ErrorCodeValid,IN ULONG32 ErrorCode);

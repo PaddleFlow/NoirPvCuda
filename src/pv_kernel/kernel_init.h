@@ -3,6 +3,7 @@
 #define ConsoleInputPort	0
 #define ConsoleOutputPort	1
 #define ConsoleErrorPort	2
+#define ConsoleDebugPort	3
 
 #define MSR_STAR			0xC0000081
 #define MSR_LSTAR			0xC0000082
@@ -19,6 +20,12 @@
 
 CHAR DummyString[]="Dummy Interrupt occurred!\n";
 ULONG64 DummyStringLength=sizeof(DummyString);
+
+typedef struct _PV_SYSTEM_TABLE
+{
+	NOIR_HYPERCALL HypercallFunction;
+	ULONG NumberOfAllocatedPageStructures;
+}PV_SYSTEM_TABLE,*PPV_SYSTEM_TABLE;
 
 #pragma pack(1)
 typedef struct _KIDTENTRY64
@@ -110,18 +117,8 @@ typedef struct _PVKPB64
 }PVKPB,*PPVKPB;
 #pragma pack()
 
-// Paravirtualized User Thread Environment Block
-#pragma pack(8)
-typedef struct _PVUTEB64
-{
-	struct
-	{
-		ULONG64 ElfImage:1;
-		ULONG64 Reserved:63;
-	}Flags;
-}PVUTEB64,*PPVUTEB64;
-#pragma pack()
-
+void MmInitializeMemoryManager();
+void PspInitialzeProcessManager();
 void PvDummyInterrupt(void);
 void PvTimerInterrupt(void);
 void PvSystemCall64(void);

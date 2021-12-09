@@ -11,10 +11,12 @@
 #define NOIR_HYPERCALL_MEMORY_EXTENSION		0x1
 #define NOIR_HYPERCALL_FILE_CREATE			0x2
 #define NOIR_HYPERCALL_FILE_CLOSE			0x3
-#define NOIR_HYPERCALL_FILE_READ			0x4
-#define NOIR_HYPERCALL_FILE_WRITE			0x5
+#define NOIR_HYPERCALL_FILE_READ_SYNC		0x4
+#define NOIR_HYPERCALL_FILE_WRITE_SYNC		0x5
 #define NOIR_HYPERCALL_FILE_SET_POINTER		0x6
 #define NOIR_HYPERCALL_FILE_REMOVE			0x7
+#define NOIR_HYPERCALL_FILE_READ_ASYNC		0x8
+#define NOIR_HYPERCALL_FILE_WRITE_ASYNC		0x9
 
 #define KGDT_KERNEL_CODE64			0x10
 #define KGDT_KERNEL_DATA64			0x18
@@ -83,6 +85,9 @@ BOOL PvReadGuestStdIn(OUT PVOID Buffer,IN ULONG Size);
 BOOL PvWriteGuestStdOut(IN PVOID Buffer,IN ULONG Size);
 BOOL PvWriteGuestStdErr(IN PVOID Buffer,IN ULONG Size);
 
+BOOL PvIoReadFileSynchronous(IN ULONG64 GuestCr3,IN HANDLE FileHandle,IN ULONG64 BufferGva,IN ULONG NumberOfBytes);
+
+BOOL PvdGetSymbolNameWithLineInfo(IN ULONG64 Address,OUT PSTR Buffer,IN SIZE_T BufferSize);
 void PvdLocateImageDebugDatabasePath(IN ULONG64 GuestCr3,IN ULONG64 ImageBaseGva,OUT PWSTR DatabasePath,IN ULONG Cch);
 BOOL PvdLoadSymbolForGuestModule(IN ULONG64 ImageBaseGva,IN ULONG ImageSize,IN HANDLE FileHandle,IN PCSTR ImageName);
 void PvdUnloadSymbolForGuestModule(IN ULONG64 ImageBaseGva);
@@ -91,6 +96,8 @@ BOOL PvInitializeTimerHardware(IN LONG64 InterruptInterval);
 void PvFinalizeTimerHardware();
 BOOL PvInitializeFileIoHardware();
 void PvFinalizeFileIoHardware();
+
+HANDLE PvIoCreateFile(IN PSTR FilePath,IN ULONG DesiredAccess,IN ULONG ShareMode,IN ULONG Disposition,IN ULONG Attributes);
 
 extern HANDLE StdIn;
 extern HANDLE StdOut;
