@@ -8,17 +8,21 @@ void RtlInitializeListHead(OUT PLIST_ENTRY ListHead)
 
 void RtlInsertToListHead(OUT PLIST_ENTRY ListHead,IN PLIST_ENTRY ListEntry)
 {
-	ListHead->Flink->Blink=ListEntry;
+	// Initialize the insertee.
 	ListEntry->Flink=ListHead->Flink;
 	ListEntry->Blink=ListHead;
+	// Set the insertee surroundings.
+	ListHead->Flink->Blink=ListEntry;
 	ListHead->Flink=ListEntry;
 }
 
 void RtlInsertToListTail(OUT PLIST_ENTRY ListHead,IN PLIST_ENTRY ListEntry)
 {
-	ListHead->Blink->Flink=ListEntry;
+	// Initialize the insertee.
 	ListEntry->Blink=ListHead->Blink;
 	ListEntry->Flink=ListHead;
+	// Set the insertee surroundings.
+	ListHead->Blink->Flink=ListEntry;
 	ListHead->Blink=ListEntry;
 }
 

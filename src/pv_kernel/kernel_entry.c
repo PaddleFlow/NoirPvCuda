@@ -1,5 +1,9 @@
 #include <pvdef.h>
 #include <hypercall.h>
+#include <pv_fileio.h>
+#include <ps.h>
+#include <mm.h>
+#include <cudart.h>
 #include "kernel_init.h"
 
 void PvDummyPrinter()
@@ -79,8 +83,25 @@ void PvIdleLoop()
 	while(1)__halt();
 }
 
+void PvCudaTest()
+{
+	int DevCount;
+	cudaError_t ErrCode=cudaGetDeviceCount(&DevCount);
+	if(ErrCode!=cudaSuccess)
+		PvPrintStdOut("Failed to get device count!\n");
+	else
+	{
+		struct cudaDeviceProp DevProp;
+		PvPrintStdOut("Number of Device Count: %u\n",DevCount);
+		ErrCode=cudaGetDeviceProperties(&DevProp,0);
+		PvPrintStdOut("Name of Cuda Device #0 is %s\n",DevProp.name);
+	}
+}
+
 void PvKernelEntry(IN NOIR_HYPERCALL HypercallFunction)
 {
+	// HANDLE ImageHandle;
+	// PKPROCESS InitialProcess;
 	NoirHypercall=HypercallFunction;
 	// Setup Interrupt Descriptor Table. Otherwise the processor could not correctly handle interrupts.
 	PvSetupInterruptHandlers();
@@ -88,12 +109,20 @@ void PvKernelEntry(IN NOIR_HYPERCALL HypercallFunction)
 	PvSetupSystemLinkage();
 	// Initialize Memory Manager.
 	MmInitializeMemoryManager();
+	// Initialize User/Kernel Shared Region
+	MmInitializeUserKernelSharedRegion();
 	// Initialize Process Manager.
 	PspInitialzeProcessManager();
 	// Use "rep outsb" instruction to output string to paravirtualized console.
 	__outbytestring(ConsoleOutputPort,HelloString,sizeof(HelloString));
 	// Enable interrupts. Otherwise the processor might be permanently blocked.
 	_enable();
+	// Test cuda calls.
+	PvCudaTest();
+	// Create a test process.
+	// ImageHandle=PvCreateFileA("/CudaDetector.exe",GENERIC_READ,FILE_SHARE_READ,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL);
+	// PvPrintStdOut("Successfully opened image! Handle=0x%p!\n",ImageHandle);
+	// PsCreateProcess(&InitialProcess,ImageHandle);
 	// Initialization complete, start thread scheduling.
 	PvIdleLoop();
 	// Never returns.

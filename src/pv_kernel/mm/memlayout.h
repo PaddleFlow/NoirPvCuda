@@ -70,7 +70,7 @@ typedef struct _KVA_POOL_HEAD
 	{
 		ULONG64 InUse:1;
 		ULONG64 Last:1;
-		ULONG64 Reserved:63;
+		ULONG64 Reserved:62;
 	};
 }KVA_POOL_HEAD,*PKVA_POOL_HEAD;
 

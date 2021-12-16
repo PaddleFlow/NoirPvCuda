@@ -6,11 +6,39 @@
 #include <page.h>
 #include <peimage.h>
 
-void PsInsertVadToProcess(IN PKPROCESS Process,IN PKVAD Vad)
+BOOL static PsInsertVadTree(IN PKVAD VadNode,IN PKVAD NewVad)
 {
+	// FIXME: Implement AVL Binary-Search Tree.
+	if(NewVad->StartingPfn>VadNode->EndingPfn)
+	{
+		// It is to be inserted to the right.
+		if(VadNode->RightChild)
+			return PsInsertVadTree(VadNode->RightChild,NewVad);
+		else
+			VadNode->RightChild=NewVad;
+		return TRUE;
+	}
+	else if(NewVad->EndingPfn<VadNode->StartingPfn)
+	{
+		// It is to be inserted to the left.
+		if(VadNode->LeftChild)
+			return PsInsertVadTree(VadNode->LeftChild,NewVad);
+		else
+			VadNode->LeftChild=NewVad;
+		return TRUE;
+	}
+	// There are overlapping pages. Fail the insertion.
+	return FALSE;
+}
+
+BOOL PsInsertVadToProcess(IN PKPROCESS Process,IN PKVAD Vad)
+{
+	// Insert the Binary-Search Tree.
+	if(!PsInsertVadTree(&Process->VadRoot,Vad))return FALSE;
+	// If the insertion fails, do not insert the view list.
 	// Insert the Doubly-Linked List.
 	RtlInsertToListTail(&Process->VadRoot.ViewList,&Vad->ViewList);
-	// Insert the AVL Tree.
+	return TRUE;
 }
 
 PVOID PsLoadImageToProcess(IN PKPROCESS Process,IN HANDLE ImageFileHandle)
@@ -72,7 +100,7 @@ PVOID PsLoadImageToProcess(IN PKPROCESS Process,IN HANDLE ImageFileHandle)
 					// Map all previously described pages.
 					for(ULONG i=0;i<SizeInPages;i++)
 					{
-						PKPTE_SECTION Pte=&Vad->SectionPtes[i>>PAGE_SHIFT];
+						PKPTE_SECTION Pte=&Vad->SectionPtes[i];
 						KPAGE_RIGHTS PageRights;
 						PageRights.Value=0;
 						PageRights.Present=(ULONG32)Pte->Read;
@@ -112,10 +140,70 @@ void PspCreateThread(IN PKPROCESS Process,OUT PKTHREAD *NewThread,IN ULONG64 Sta
 	PKTHREAD Thread=MmAllocateSystemPool(sizeof(KTHREAD));
 	if(Thread)
 	{
+		PKVAD Vad=MmAllocateSystemPool(sizeof(KVAD)+sizeof(KPTE_SECTION)*(USER_STACK_PAGES-1));
 		Thread->Process=Process;
 		RtlInsertToListTail(&Process->ThreadListHead,&Thread->ThreadListEntry);
+		// Create thread's stack.
+		// FIXME: Use dynamic allocation.
+		Thread->StackBase=(PVOID)(PvUserKernelSharedRegionUserVirtualBase-USER_STACK_SIZE);
+		if(Vad)
+		{
+			Vad->StartingPfn=(ULONG64)Thread->StackBase>>PAGE_SHIFT;
+			Vad->EndingPfn=Vad->StartingPfn+USER_STACK_PAGES-1;
+			for(ULONG i=0;i<USER_STACK_PAGES;i++)
+			{
+				PKPTE_SECTION Pte=&Vad->SectionPtes[i];
+				KPAGE_RIGHTS PageRights;
+				Pte->Value=0;
+				Pte->Read=Pte->Write=Pte->Swappable=TRUE;
+				Pte->PageBase=MmAllocatePhysicalPage()>>PAGE_SHIFT;
+				PageRights.Value=0;
+				PageRights.Present=PageRights.Write=PageRights.User=TRUE;
+				MmMapVirtualPage(Process->PagingBase,(PVOID)((ULONG64)Thread->StackBase+(i<<PAGE_SHIFT)),Pte->PageBase<<PAGE_SHIFT,PageRights);
+			}
+		}
+		// Initialize Context...
+		Thread->Context.SegCs=KGDT_USER_CODE64;
+		Thread->Context.SegDs=KGDT_USER_DATA;
+		Thread->Context.SegEs=KGDT_USER_DATA;
+		Thread->Context.SegFs=KGDT_USER_TEB32;
+		Thread->Context.SegGs=KGDT_USER_TEB64;
+		Thread->Context.SegSs=KGDT_USER_DATA;
+		Thread->Context.Eflags=0x202;			// Interrupts must never be masked in user mode.
+		Thread->Context.Rsp=(ULONG64)Thread->StackBase+USER_STACK_SIZE-0x10;
+		Thread->Context.FxState.Fpu.Fcw=0x40;
+		Thread->Context.FxState.Fpu.Fsw=0x0;
+		Thread->Context.FxState.Fpu.Ftw=0x0;
+		Thread->Context.FxState.Fpu.MxCsr=0x1F80;
 	}
 	*NewThread=Thread;
+}
+
+BOOL PspMapUserKernelSharedPage(IN PKPROCESS Process)
+{
+	// There is a shared page between user and kernel.
+	PKVAD Vad=MmAllocateSystemPool(sizeof(KVAD));
+	if(Vad)
+	{
+		KPAGE_RIGHTS PageRights;
+		// Initialize Basic VAD Entry.
+		Vad->StartingPfn=Vad->EndingPfn=PvUserKernelSharedRegionUserVirtualBase>>PAGE_SHIFT;
+		// Initialize Section PTE.
+		Vad->SectionPtes->Value=0;
+		Vad->SectionPtes->Read=TRUE;
+		Vad->SectionPtes->PageBase=PvUserKernelSharedRegionPhysicalBase;
+		// Map to Process Region.
+		// DO NOT GRANT WRITE AND EXECUTE PERMISSION!
+		PageRights.Value=0;
+		PageRights.Present=TRUE;
+		PageRights.User=TRUE;
+		PageRights.Caching=PAGE_CACHING_WB;
+		MmMapVirtualPage(Process->PagingBase,(PVOID)PvUserKernelSharedRegionUserVirtualBase,PvUserKernelSharedRegionPhysicalBase,PageRights);
+		// Insert to VAD Tree.
+		if(PsInsertVadToProcess(Process,Vad))return TRUE;
+		MmFreeSystemPool(Vad);
+	}
+	return FALSE;
 }
 
 void PspCreateProcess(OUT PKPROCESS *NewProcess)
@@ -131,6 +219,30 @@ void PspCreateProcess(OUT PKPROCESS *NewProcess)
 		RtlInsertToListTail(&PvIdleProcess.ActiveListEntry,&Process->ActiveListEntry);
 	}
 	*NewProcess=Process;
+}
+
+void PsCreateProcess(OUT PKPROCESS *NewProcess,IN HANDLE ImageFileHandle)
+{
+	ULONG64 OldCr3=__readcr3();
+	PIMAGE_DOS_HEADER DosHead;
+	PKTHREAD InitialThread;
+	PspCreateProcess(NewProcess);
+	PspMapUserKernelSharedPage(*NewProcess);
+	// Load image section.
+	(*NewProcess)->SectionBase=PsLoadImageToProcess(*NewProcess,ImageFileHandle);
+	// Create initial thread.
+	PspCreateThread(*NewProcess,&InitialThread,0);
+	// Set the instruction pointer of the initial thread.
+	// Attach to the target process.
+	__writecr3((*NewProcess)->PagingBase);
+	DosHead=(*NewProcess)->SectionBase;
+	if(DosHead->e_magic==IMAGE_DOS_SIGNATURE)
+	{
+		PIMAGE_NT_HEADERS64 NtHead=(PIMAGE_NT_HEADERS64)((ULONG64)DosHead+DosHead->e_lfanew);
+		if(NtHead->Signature==IMAGE_NT_SIGNATURE)InitialThread->Context.Rip=NtHead->OptionalHeader.AddressOfEntryPoint;
+	}
+	// Detach from the target process.
+	__writecr3(OldCr3);
 }
 
 void PspInitialzeProcessManager()

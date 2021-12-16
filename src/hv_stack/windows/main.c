@@ -8,6 +8,7 @@ int main(int argc,char* argv[],char* envp[])
 {
 	NOIR_STATUS st;
 	NoirInitializeLibrary();
+	NoirInitializeDisassembler();
 	PvdInitialize();
 	PvInitializeConsole();
 	PvPrintConsoleA("Welcome to Paravirtualized Cuda!\n");
@@ -16,7 +17,10 @@ int main(int argc,char* argv[],char* envp[])
 	if(st==NOIR_SUCCESS)
 	{
 		BOOL b=PvInitializeGuestInternalMapping();
-		if(b)PvPrintConsoleA("Guest Internal Mapping is initialized successfully!\n");
+		if(b)
+			PvPrintConsoleA("Guest Internal Mapping is initialized successfully!\n");
+		else
+			PvPrintConsoleA("Failed to initialize Guest Internal Mapping!\n");
 		b=PvLoadParavirtualizedKernel();
 		if(b)PvPrintConsoleA("Paravirtualized Kernel image is loaded successfully!\n");
 		st=PvStartParavirtualizedGuest();

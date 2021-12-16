@@ -280,6 +280,8 @@ typedef struct _NOIR_CVM_EXCEPTION_CONTEXT
 	};
 	ULONG32 ErrorCode;
 	ULONG64 PageFaultAddress;
+	BYTE FetchedBytes;
+	BYTE InstructionBytes[15];
 }NOIR_CVM_EXCEPTION_CONTEXT,*PNOIR_CVM_EXCEPTION_CONTEXT;
 
 typedef struct _NOIR_CVM_IO_CONTEXT

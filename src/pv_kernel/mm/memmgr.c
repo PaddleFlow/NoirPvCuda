@@ -25,7 +25,7 @@ void static MmSetAllocationBitmap(IN ULONG64 PhysicalPage)
 	if(PhysicalPage>=PvSystemCriticalRangePhysicalBase && PhysicalPage<PvBasicFreeMemoryPhysicalBase)
 		RtlSetBitmap(MmCriticalRangeAllocationBitmap,(ULONG)(PhysicalPage>>PAGE_SHIFT));
 	else
-		RtlSetBitmap(MmFreeMemoryAllocationBitmap,(ULONG)(PhysicalPage>>PAGE_SHIFT));
+		RtlSetBitmap(MmFreeMemoryAllocationBitmap,(ULONG)((PhysicalPage-PvBasicFreeMemoryPhysicalBase)>>PAGE_SHIFT));
 }
 
 void static MmResetAllocationBitmap(IN ULONG64 PhysicalPage)
@@ -70,7 +70,7 @@ PVOID MmAllocateSystemPool(IN ULONG Length)
 			{
 				ULONG64 PhysicalPage=MmAllocatePhysicalPage();
 				if(!PhysicalPage)return NULL;
-				PVOID VirtualPage=MmSystemPoolAllocationLimit;
+				PVOID VirtualPage=(PVOID)MmSystemPoolAllocationLimit;
 				MmMapVirtualPage(PvPagingStructuresPhysicalBase,(PVOID)MmSystemPoolAllocationLimit,PhysicalPage,PageRights);
 				// Increment the limit if page is successfully allocated.
 				MmSystemPoolAllocationLimit+=PAGE_SIZE;
@@ -162,7 +162,7 @@ void MmFreePageForPagingStructure(IN PVOID Page)
 
 void MmMapVirtualPage(IN ULONG64 RootPage,IN PVOID VirtualPage,IN ULONG64 PhysicalPage,IN KPAGE_RIGHTS PageRights)
 {
-	PKPML4E Pml4eBase=(PKPML4E)(PvPagingStructuresVirtualBase+RootPage);
+	PKPML4E Pml4eBase=(PKPML4E)(PvPagingStructuresVirtualBase+RootPage-PvPagingStructuresPhysicalBase);
 	PKPDPTE PdpteBase;
 	PKPDE PdeBase;
 	PKPTE PteBase;
@@ -175,7 +175,13 @@ void MmMapVirtualPage(IN ULONG64 RootPage,IN PVOID VirtualPage,IN ULONG64 Physic
 		PdpteBase=MmAllocatePageForPagingStructure();
 		__stosq(PdpteBase,0,512);
 		// Set the PDPTE Base in this PML4E.
-		Pml4eBase[Va.Normal.Pml4eIndex].PdpteBase=((ULONG64)PdpteBase-PvPagingStructuresVirtualBase)>>PAGE_SHIFT;
+		Pml4eBase[Va.Normal.Pml4eIndex].PdpteBase=((ULONG64)PdpteBase-PvPagingStructuresVirtualBase+PvPagingStructuresPhysicalBase)>>PAGE_SHIFT;
+	}
+	else
+	{
+		// Calculate the PDPTE Base.
+		ULONG64 PdptePhysBase=Pml4eBase[Va.Normal.Pml4eIndex].PdpteBase<<PAGE_SHIFT;
+		PdpteBase=(PKPDPTE)(PdptePhysBase-PvPagingStructuresPhysicalBase+PvPagingStructuresVirtualBase);
 	}
 	// Set up the PML4E.
 	Pml4eBase[Va.Normal.Pml4eIndex].Present=1;
@@ -189,7 +195,13 @@ void MmMapVirtualPage(IN ULONG64 RootPage,IN PVOID VirtualPage,IN ULONG64 Physic
 		PdeBase=MmAllocatePageForPagingStructure();
 		__stosq(PdeBase,0,512);
 		// Set the PDE Base in this PDPTE.
-		PdpteBase[Va.Normal.PdpteIndex].Normal.PdeBase=((ULONG64)PdeBase-PvPagingStructuresVirtualBase)>>PAGE_SHIFT;
+		PdpteBase[Va.Normal.PdpteIndex].Normal.PdeBase=((ULONG64)PdeBase-PvPagingStructuresVirtualBase+PvPagingStructuresPhysicalBase)>>PAGE_SHIFT;
+	}
+	else
+	{
+		// Calculate the PDE Base.
+		ULONG64 PdePhysBase=PdpteBase[Va.Normal.PdpteIndex].Normal.PdeBase<<PAGE_SHIFT;
+		PdeBase=(PKPDE)(PdePhysBase-PvPagingStructuresPhysicalBase+PvPagingStructuresVirtualBase);
 	}
 	// Set up the PDPTE.
 	if(PageRights.PageSize==2)
@@ -225,7 +237,13 @@ void MmMapVirtualPage(IN ULONG64 RootPage,IN PVOID VirtualPage,IN ULONG64 Physic
 			PteBase=MmAllocatePageForPagingStructure();
 			__stosq(PteBase,0,512);
 			// Set the PTE Base in this PDE.
-			PdeBase[Va.Normal.PdeIndex].Normal.PteBase=((ULONG64)PteBase-PvPagingStructuresVirtualBase)>>PAGE_SHIFT;
+			PdeBase[Va.Normal.PdeIndex].Normal.PteBase=((ULONG64)PteBase-PvPagingStructuresVirtualBase+PvPagingStructuresPhysicalBase)>>PAGE_SHIFT;
+		}
+		else
+		{
+			// Calculate the PTE Base.
+			ULONG64 PtePhysBase=PdeBase[Va.Normal.PdeIndex].Normal.PteBase<<PAGE_SHIFT;
+			PteBase=(PKPTE)(PtePhysBase-PvPagingStructuresPhysicalBase+PvPagingStructuresVirtualBase);
 		}
 		// Set up the PDE.
 		if(PageRights.PageSize==1)
@@ -274,20 +292,35 @@ void MmMapVirtualPage(IN ULONG64 RootPage,IN PVOID VirtualPage,IN ULONG64 Physic
 	__invlpg(VirtualPage);
 }
 
+void MmInitializeUserKernelSharedRegion()
+{
+	KPAGE_RIGHTS PageRights;
+	// Allocate a Physical Page for it.
+	PvUserKernelSharedRegionPhysicalBase=MmAllocatePhysicalPage();
+	// Map it to kernel space.
+	PageRights.Value=0;
+	PageRights.Present=1;
+	PageRights.Write=1;
+	PageRights.Caching=PAGE_CACHING_WB;
+	PageRights.Global=1;
+	MmMapVirtualPage(PvPagingStructuresPhysicalBase,(PVOID)PvUserKernelSharedRegionVirtualBase,PvUserKernelSharedRegionPhysicalBase,PageRights);
+	// Initialize it.
+}
+
 void MmInitializeRootPageForProcess(IN PKPML4E RootPage)
 {
 	// Copy the PML4E of kernel pages...
-	__movsq(RootPage,(PVOID)PvPagingStructuresVirtualBase,256);
+	__movsq(&RootPage[256],(PVOID)(PvPagingStructuresVirtualBase+0x800),256);
 }
 
 void MmInitializeMemoryManager()
 {
 	// Initialize Bitmaps...
-	MmSetAllocationBitmap(PvSystemCriticalRangePhysicalBase);			// CPU 0 Critical Structures...
-	MmSetAllocationBitmap(PvPagingStructuresPhysicalBase-PAGE_SIZE);	// Allocation Bitmap Page itself...
-	for(ULONG i=0;i<8;i++)
-		MmSetAllocationBitmap(PvPagingStructuresPhysicalBase);			// Initial Paging Structures...
-	for(ULONG i=0;i<512;i++)											// Booting module and Stack...
+	MmSetAllocationBitmap(PvSystemCriticalRangePhysicalBase);						// CPU 0 Critical Structures...
+	MmSetAllocationBitmap(PvPagingStructuresPhysicalBase-PAGE_SIZE);				// Allocation Bitmap Page itself...
+	for(ULONG i=0;i<11;i++)
+		MmSetAllocationBitmap(PvPagingStructuresPhysicalBase+(i<<PAGE_SHIFT));		// Initial Paging Structures...
+	for(ULONG i=0;i<512;i++)														// Booting module and Stack...
 		MmSetAllocationBitmap(PvBasicFreeMemoryPhysicalBase+(i<<PAGE_SHIFT));
 	((PKVA_POOL_HEAD)MmSystemPoolCurrentAllocation)->NextPoolHead=0;
 	((PKVA_POOL_HEAD)MmSystemPoolCurrentAllocation)->Last=TRUE;

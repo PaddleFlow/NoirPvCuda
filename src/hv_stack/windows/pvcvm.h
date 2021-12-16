@@ -80,12 +80,14 @@ ULONG PvPrintConsoleW(IN PCWSTR Format,...);
 PVOID MemAlloc(IN SIZE_T Length);
 BOOL MemFree(IN PVOID Memory);
 
+BYTE NoirDisasmCode16(OUT PSTR Mnemonic,IN SIZE_T MnemonicLength,IN PBYTE Code,IN SIZE_T CodeLength,IN ULONG64 VirtualAddress);
+BYTE NoirDisasmCode32(OUT PSTR Mnemonic,IN SIZE_T MnemonicLength,IN PBYTE Code,IN SIZE_T CodeLength,IN ULONG64 VirtualAddress);
+BYTE NoirDisasmCode64(OUT PSTR Mnemonic,IN SIZE_T MnemonicLength,IN PBYTE Code,IN SIZE_T CodeLength,IN ULONG64 VirtualAddress);
+
 BOOL PvReadGuestStdInAsync(OUT PVOID Buffer,IN ULONG Size,IN OUT LPOVERLAPPED Overlapped);
 BOOL PvReadGuestStdIn(OUT PVOID Buffer,IN ULONG Size);
 BOOL PvWriteGuestStdOut(IN PVOID Buffer,IN ULONG Size);
 BOOL PvWriteGuestStdErr(IN PVOID Buffer,IN ULONG Size);
-
-BOOL PvIoReadFileSynchronous(IN ULONG64 GuestCr3,IN HANDLE FileHandle,IN ULONG64 BufferGva,IN ULONG NumberOfBytes);
 
 BOOL PvdGetSymbolNameWithLineInfo(IN ULONG64 Address,OUT PSTR Buffer,IN SIZE_T BufferSize);
 void PvdLocateImageDebugDatabasePath(IN ULONG64 GuestCr3,IN ULONG64 ImageBaseGva,OUT PWSTR DatabasePath,IN ULONG Cch);
@@ -98,6 +100,9 @@ BOOL PvInitializeFileIoHardware();
 void PvFinalizeFileIoHardware();
 
 HANDLE PvIoCreateFile(IN PSTR FilePath,IN ULONG DesiredAccess,IN ULONG ShareMode,IN ULONG Disposition,IN ULONG Attributes);
+BOOL PvIoReadFileSynchronous(IN ULONG64 GuestCr3,IN HANDLE FileHandle,IN ULONG64 BufferGva,IN ULONG NumberOfBytes);
+
+BOOLEAN PvHandleCudaHypercall(IN ULONG32 VpIndex,IN OUT PNOIR_GPR_STATE GprState,IN OUT PNOIR_CR_STATE CrState,IN PNOIR_CVM_EXIT_CONTEXT ExitContext);
 
 extern HANDLE StdIn;
 extern HANDLE StdOut;

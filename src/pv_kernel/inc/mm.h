@@ -40,3 +40,7 @@ ULONG64 MmGetPhysicalAddress(IN PVOID VirtualAddress);
 void MmInitializeRootPageForProcess(IN PVOID RootPage);
 BOOL MmTurnOffCopyOnWrite();
 BOOL MmTurnOnCopyOnWrite();
+
+#if defined(_MEMMGR)
+ULONG64 PvUserKernelSharedRegionPhysicalBase=0;
+#endif

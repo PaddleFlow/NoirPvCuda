@@ -16,7 +16,8 @@ HANDLE PvIoCreateFile(IN PSTR FilePath,IN ULONG DesiredAccess,IN ULONG ShareMode
 	for(PSTR s=&TargetFilePath[1];s<TargetFilePathEnd;s++)
 		if(*s=='/')*s='\\';
 	PvPrintConsoleA("File Path: %s\n",TargetFilePath);
-	FileHandle=CreateFileA(FilePath,DesiredAccess,ShareMode,NULL,Disposition,Attributes,NULL);
+	FileHandle=CreateFileA(TargetFilePath,DesiredAccess,ShareMode,NULL,Disposition,Attributes,NULL);
+	if(FileHandle==INVALID_HANDLE_VALUE)PvPrintConsoleA("[Guest File I/O] Failed to create file! Error Code=%u\n",GetLastError());
 	return FileHandle;
 }
 
@@ -29,13 +30,20 @@ BOOL PvIoReadFileSynchronous(IN ULONG64 GuestCr3,IN HANDLE FileHandle,IN ULONG64
 		ULONG64 BufferHva;
 		ULONG32 ErrCode=PvTranslateGvaToHva64(GuestCr3,GuestBuffer,1,&BufferHva);
 		if(ErrCode)
+		{
+			PvPrintConsoleA("Failed to translate Guest Virtual Address!\n");
 			return FALSE;
+		}
 		else
 		{
 			ULONG SizeToRead=(ULONG)((PAGE_BASE(GuestBuffer)+PAGE_SIZE-GuestBuffer)>RemainderLength?RemainderLength:(PAGE_BASE(GuestBuffer)+PAGE_SIZE-GuestBuffer));
 			ULONG SizeRead;
 			BOOL Result=ReadFile(FileHandle,(PVOID)BufferHva,SizeToRead,&SizeRead,NULL);
-			if(!Result)return FALSE;
+			if(!Result)
+			{
+				PvPrintConsoleA("[Guest File I/O] Failed to read file synchronously! Error Code=%u\n",GetLastError());
+				return FALSE;
+			}
 			RemainderLength-=SizeRead;
 			GuestBuffer+=SizeRead;
 		}

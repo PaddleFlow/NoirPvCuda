@@ -18,3 +18,8 @@ void RtlFillMemory(IN PVOID Destination,IN BYTE Filler,IN ULONG SizeInBytes)
 {
 	__stosb(Destination,Filler,SizeInBytes);
 }
+
+void RtlZeroMemory(IN PVOID Destination,IN ULONG SizeInBytes)
+{
+	__stosb(Destination,0,SizeInBytes);
+}

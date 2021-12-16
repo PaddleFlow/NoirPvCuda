@@ -1,7 +1,13 @@
 // Miscellaneous basic definitions...
 #include "pvdef.h"
+#include <stdarg.h>
 
 #pragma once
+
+#define ConsoleInputPort	0
+#define ConsoleOutputPort	1
+#define ConsoleErrorPort	2
+#define ConsoleDebugPort	3
 
 #define PAGE_BASE(x)			(x&0xFFFFFFFFFFFFF000)
 #define PAGE_OFFSET(x)			(x&0xFFF)
@@ -13,6 +19,18 @@
 #define PAGE_SHIFT				12
 #define PAGE_LARGE_SHIFT		21
 #define PAGE_HUGE_SHIFT			30
+
+#define KGDT_KERNEL_CODE64		0x10
+#define KGDT_KERNEL_DATA64		0x18
+#define KGDT_USER_TEB32			0x20
+#define KGDT_USER_TEB64			0x30
+#define KGDT_KERNEL_PROC64		0x30
+#define KGDT_KERNEL_TSS64		0x40
+#define KGDT_USER_CODE32		0x50
+#define KGDT_USER_DATA			0x58
+#define KGDT_USER_CODE64		0x60
+
+#define PvUserKernelSharedRegionUserVirtualBase		0x7FFFFFFFF000
 
 typedef struct _LIST_ENTRY
 {
@@ -127,6 +145,7 @@ typedef struct _CONTEXT
 void RtlMoveMemory(IN PVOID Destination,IN PVOID Source,IN ULONG SizeInBytes);
 void RtlCopyMemory(IN PVOID Destination,IN PVOID Source,IN ULONG SizeInBytes);
 void RtlFillMemory(IN PVOID Destination,IN BYTE Filler,IN ULONG SizeInBytes);
+void RtlZeroMemory(IN PVOID Destination,IN ULONG SizeInBytes);
 
 void RtlInitializeListHead(OUT PLIST_ENTRY ListHead);
 void RtlInsertToListHead(OUT PLIST_ENTRY ListHead,IN PLIST_ENTRY ListEntry);
@@ -140,5 +159,12 @@ ULONG RtlFindClearBit(IN PVOID Bitmap,IN ULONG Length);
 ULONG RtlFindSetBitAndReset(IN PVOID Bitmap,IN ULONG Length);
 ULONG RtlFindClearBitAndSet(IN PVOID Bitmap,IN ULONG Length);
 
+ULONG RtlGetStringLengthA(IN PSTR String,IN ULONG Limit);
+ULONG RtlCopyStringA(OUT PSTR Destination,IN PSTR Source,IN ULONG DestinationLimit);
+ULONG RtlReverseStringA(IN OUT PSTR String,IN ULONG Limit);
+ULONG RtlVPrintStringA(OUT PSTR Destination,IN ULONG Limit,IN PSTR Format,va_list ArgList);
+
 void RtlCaptureContext(OUT PCONTEXT Context);
 void RtlRestoreContext(IN PCONTEXT Context);
+
+ULONG PvPrintStdOut(IN PSTR Format,...);

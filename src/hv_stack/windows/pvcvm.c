@@ -9,7 +9,7 @@
 BOOL PvInitializeGuestInternalMapping()
 {
 	BOOL Result=FALSE;
-	HANDLE hFile=CreateFileW(L"page_base.dat",GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+	HANDLE hFile=CreateFileW(L".\\page_base.dat",GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
 	if(hFile!=INVALID_HANDLE_VALUE)
 	{
 		DWORD FileSize=GetFileSize(hFile,NULL);
@@ -17,7 +17,8 @@ BOOL PvInitializeGuestInternalMapping()
 		{
 			DWORD ReadSize;
 			SetFilePointer(hFile,0,NULL,FILE_BEGIN);
-			ReadFile(hFile,PvPagingStructures,FileSize,&ReadSize,NULL);
+			Result=ReadFile(hFile,PvPagingStructures,FileSize,&ReadSize,NULL);
+			if(!Result)PvPrintConsoleA("Failed to read paging base!\n");
 		}
 		CloseHandle(hFile);
 	}
@@ -266,11 +267,19 @@ ULONG32 PvTranslateGvaToGpa64(IN ULONG64 GuestCr3,IN ULONG64 Gva,IN ULONG64 Acce
 							*Gpa+=Addr.L4.PageOffset;
 							return 0;
 						}
+						else
+							PvPrintConsoleA("[Page-Fault] Translation failed in PTE Stage for GVA=0x%016llX!\n",Gva);
 					}
 				}
+				else
+					PvPrintConsoleA("[Page-Fault] Translation failed in PDE Stage for GVA=0x%016llX!\n",Gva);
 			}
 		}
+		else
+			PvPrintConsoleA("[Page-Fault] Translation failed in PDPTE Stage for GVA=0x%016llX!\n",Gva);
 	}
+	else
+		PvPrintConsoleA("[Page-Fault] Translation failed in PML4E Stage for GVA=0x%016llX! Entry Value: 0x%llX\n",Gva,Pml4eBase[Addr.L4.Pml4eIndex].Value);
 	// FIXME: Return appropriate error code.
 	return 1;
 }
@@ -281,6 +290,72 @@ ULONG32 PvTranslateGvaToHva64(IN ULONG64 GuestCr3,IN ULONG64 Gva,IN ULONG64 Acce
 	ULONG32 ErrCode=PvTranslateGvaToGpa64(GuestCr3,Gva,Access,&Gpa);
 	if(ErrCode==0)*Hva=PvTranslateGpaToHva(Gpa);
 	return ErrCode;
+}
+
+ULONG PvWriteGuestMemory(IN ULONG64 GuestCr3,IN ULONG64 GuestAddress,OUT PVOID Buffer,IN ULONG Size,IN BOOLEAN VirtualAddress,IN ULONG64 Access)
+{
+	ULONG64 Gpa;
+	ULONG64 Hva;
+	// Do different treatments for guest memory accesses.
+	if(VirtualAddress)
+	{
+		// Access by virtual address.
+		// FIXME: Optimize by recognizing large/huge pages.
+		ULONG64 PageBase=PAGE_BASE(GuestAddress);
+		ULONG32 CopyOffset=PAGE_OFFSET(GuestAddress);
+		ULONG32 CopyLength=(PAGE_SIZE-CopyOffset)<Size?PAGE_SIZE-CopyOffset:Size;
+		for(ULONG CopiedSize=0;CopiedSize<Size;CopiedSize+=CopyLength)
+		{
+			// Translate the Guest Page.
+			ULONG32 ErrCode=PvTranslateGvaToGpa64(GuestCr3,PageBase+CopyOffset,Access,&Gpa);
+			if(ErrCode)return ErrCode;
+			Hva=PvTranslateGpaToHva(Gpa);
+			if(Hva==0)return 1;
+			RtlMoveMemory((PVOID)Hva,(PVOID)((ULONG_PTR)Buffer+CopiedSize),CopyLength);
+			// Prepare for next iteration.
+			PageBase+=PAGE_SIZE;
+			CopyOffset=0;
+			CopyLength=(Size-CopiedSize)<PAGE_SIZE?Size-CopiedSize:PAGE_SIZE;
+		}
+		return 0;
+	}
+	else
+	{
+		// Access by physical address.
+		// Determine the range. Recurse the call if there is overlapping.
+		if(GuestAddress>=PvCriticalRangeBase && GuestAddress<PvPagingStructuresBase)
+		{
+			ULONG CopyLength=(PvPagingStructuresBase-GuestAddress)<Size?(ULONG)(PvPagingStructuresBase-GuestAddress):Size;
+			ULONG RemainderLength=Size-CopyLength;
+			RtlMoveMemory((PVOID)((ULONG_PTR)PvCriticalRange+GuestAddress),Buffer,CopyLength);
+			if(RemainderLength)return PvWriteGuestMemory(0,PvPagingStructuresBase,(PVOID)((ULONG_PTR)Buffer+CopyLength),RemainderLength,FALSE,0);
+		}
+		else if(GuestAddress>=PvPagingStructuresBase && GuestAddress<PvBasicFreeMemoryBase)
+		{
+			ULONG CopyLength=(PvBasicFreeMemoryBase-GuestAddress)<Size?(ULONG)(PvBasicFreeMemoryBase-GuestAddress):Size;
+			ULONG RemainderLength=Size-CopyLength;
+			RtlMoveMemory((PVOID)((ULONG_PTR)PvPagingStructures+GuestAddress-PvPagingStructuresBase),Buffer,CopyLength);
+			if(RemainderLength)return PvWriteGuestMemory(0,PvBasicFreeMemoryBase,(PVOID)((ULONG_PTR)Buffer+CopyLength),RemainderLength,FALSE,0);
+		}
+		else if(GuestAddress>=PvBasicFreeMemoryBase && GuestAddress<PvExtendedFreeMemoryBase)
+		{
+			ULONG CopyLength=(PvExtendedFreeMemoryBase-GuestAddress)<Size?(ULONG)(PvExtendedFreeMemoryBase-GuestAddress):Size;
+			ULONG RemainderLength=Size-CopyLength;
+			RtlMoveMemory((PVOID)((ULONG_PTR)PvBasicFreeMemory+(GuestAddress-PvBasicFreeMemoryBase)),Buffer,CopyLength);
+			if(RemainderLength)return PvWriteGuestMemory(0,PvExtendedFreeMemoryBase,(PVOID)((ULONG_PTR)Buffer+CopyLength),RemainderLength,FALSE,0);
+		}
+		else
+		{
+			ULONG64 ExtensionIndex=(GuestAddress>>28)-1;
+			ULONG64 ExtensionBase=ExtensionIndex<<28;
+			ULONG CopyLength=(ExtensionBase+PvExtendedFreeMemorySize-GuestAddress)<Size?(ULONG)(ExtensionBase+PvExtendedFreeMemorySize-GuestAddress):Size;
+			ULONG RemainderLength=Size-CopyLength;
+			RtlMoveMemory((PVOID)((ULONG_PTR)PvMemoryExtensionPointerTable[ExtensionIndex]+(GuestAddress-ExtensionBase)),Buffer,CopyLength);
+			if(RemainderLength)return PvWriteGuestMemory(0,ExtensionBase+PvExtendedFreeMemorySize,(PVOID)((ULONG_PTR)Buffer+CopyLength),RemainderLength,FALSE,0);
+		}
+		return 0;
+	}
+	return 0xFFFFFFFF;
 }
 
 ULONG PvReadGuestMemory(IN ULONG64 GuestCr3,IN ULONG64 GuestAddress,OUT PVOID Buffer,IN ULONG Size,IN BOOLEAN VirtualAddress,IN ULONG64 Access)
@@ -347,6 +422,15 @@ ULONG PvReadGuestMemory(IN ULONG64 GuestCr3,IN ULONG64 GuestAddress,OUT PVOID Bu
 		return 0;
 	}
 	return 0xFFFFFFFF;
+}
+
+BOOL PvTraverseGuestStack(IN ULONG VpIndex)
+{
+	STACKFRAME64 StackFrame={0};
+	CONTEXT VpContext;
+	NoirViewVirtualProcessorRegister(PvCvm,VpIndex,NoirCvmGeneralPurposeRegister,&VpContext.Rax,sizeof(NOIR_GPR_STATE));
+	NoirViewVirtualProcessorRegister(PvCvm,VpIndex,NoirCvmFxState,&VpContext.FltSave,sizeof(NOIR_FX_STATE));
+	return TRUE;
 }
 
 NOIR_STATUS PvPrintGeneralPurposeRegisters(IN ULONG32 VpIndex)
@@ -506,58 +590,170 @@ BOOLEAN PvHandleHypercall(IN ULONG32 VpIndex,IN PNOIR_CVM_EXIT_CONTEXT ExitConte
 	NOIR_STATUS st2=NoirViewVirtualProcessorRegister(PvCvm,0,NoirCvmControlRegister,&CrState,sizeof(CrState));
 	if(st1==NOIR_SUCCESS && st2==NOIR_SUCCESS)
 	{
-		switch(GprState.Rcx)
+		if(GprState.Rcx & 0x10000)
+			Result=PvHandleCudaHypercall(VpIndex,&GprState,&CrState,ExitContext);
+		else
 		{
-			case NOIR_HYPERCALL_CODE_SHUTDOWN:
+			switch(GprState.Rcx)
 			{
-				PvPrintConsoleA("Shutdown Hypercall is invoked! Guest will now shut down!\n");
+				case NOIR_HYPERCALL_CODE_SHUTDOWN:
+				{
+					PvPrintConsoleA("Shutdown Hypercall is invoked! Guest will now shut down!\n");
+					break;
+				}
+				case NOIR_HYPERCALL_MEMORY_EXTENSION:
+				{
+					PvPrintConsoleA("Memory Extension is requested!\n");
+					break;
+				}
+				case NOIR_HYPERCALL_FILE_CREATE:
+				{
+					CHAR FilePath[MAX_PATH];
+					LARGE_INTEGER Option1,Option2;
+					Option1.QuadPart=GprState.R8;
+					Option2.QuadPart=GprState.R9;
+					// Resolve GVA here.
+					PvReadGuestMemory(CrState.Cr3,GprState.Rdx,FilePath,sizeof(FilePath),TRUE,1);
+					GprState.Rax=(ULONG64)PvIoCreateFile(FilePath,Option1.LowPart,Option1.HighPart,Option2.LowPart,Option2.HighPart);
+					Result=TRUE;
+					break;
+				}
+				case NOIR_HYPERCALL_FILE_CLOSE:
+				{
+					GprState.Rax=(ULONG64)CloseHandle((HANDLE)GprState.Rcx);
+					Result=TRUE;
+					break;
+				}
+				case NOIR_HYPERCALL_FILE_READ_SYNC:
+				{
+					// Read Page-by-Page.
+					GprState.Rax=(ULONG64)PvIoReadFileSynchronous(CrState.Cr3,(HANDLE)GprState.Rdx,GprState.R8,(ULONG)GprState.R9);
+					Result=TRUE;
+					break;
+				}
+				case NOIR_HYPERCALL_FILE_WRITE_SYNC:
+				{
+					Result=TRUE;
+					break;
+				}
+				case NOIR_HYPERCALL_FILE_SET_POINTER:
+				{
+					PLARGE_INTEGER NewPointer=(PLARGE_INTEGER)&GprState.R8;
+					GprState.Rax=(ULONG64)SetFilePointer((HANDLE)GprState.Rdx,NewPointer->LowPart,&NewPointer->HighPart,(DWORD)GprState.R9);
+					Result=TRUE;
+					break;
+				}
+			}
+		}
+		NoirEditVirtualProcessorRegister(PvCvm,0,NoirCvmGeneralPurposeRegister,&GprState,sizeof(GprState));
+	}
+	return Result;
+}
+
+// Enters debugger
+BOOL PvDebugParavirtualizedGuest(IN ULONG VpIndex)
+{
+	BOOL ContinueExecution=TRUE;
+	BOOL LeaveDebugger=FALSE;
+	CHAR DebugCommand[100];
+	PSTR DebugCommandWords[10]={0};
+	ULONG PrevLocation;
+	ULONG ParsedWords;
+	ULONG CurVp=VpIndex;
+ReadDebugConsole:
+	PrevLocation=ParsedWords=0;
+	// Retrieve command from console.
+	while(ParsedWords==0)
+	{
+		PvPrintConsoleA("%u: pvd> ",CurVp);
+		StringCbGetsA(DebugCommand,sizeof(DebugCommand));
+		for(ULONG i=0;i<sizeof(DebugCommand);i++)
+		{
+			if(DebugCommand[i]=='\0')
+			{
+				DebugCommandWords[ParsedWords]=MemAlloc(i-PrevLocation);
+				RtlCopyMemory(DebugCommandWords[ParsedWords],&DebugCommand[PrevLocation],i-PrevLocation+1);
+				ParsedWords++;
 				break;
 			}
-			case NOIR_HYPERCALL_MEMORY_EXTENSION:
+			else if(DebugCommand[i]==' ')
 			{
-				PvPrintConsoleA("Memory Extension is requested!\n");
-				break;
-			}
-			case NOIR_HYPERCALL_FILE_CREATE:
-			{
-				CHAR FilePath[MAX_PATH];
-				LARGE_INTEGER Option1,Option2;
-				Option1.QuadPart=GprState.R8;
-				Option2.QuadPart=GprState.R9;
-				// Resolve GVA here.
-				PvReadGuestMemory(CrState.Cr3,GprState.Rdx,FilePath,sizeof(MAX_PATH),TRUE,1);
-				GprState.Rax=(ULONG64)PvIoCreateFile(FilePath,Option1.LowPart,Option1.HighPart,Option2.LowPart,Option2.HighPart);
-				Result=TRUE;
-				break;
-			}
-			case NOIR_HYPERCALL_FILE_CLOSE:
-			{
-				GprState.Rax=(ULONG64)CloseHandle((HANDLE)GprState.Rcx);
-				Result=TRUE;
-				break;
-			}
-			case NOIR_HYPERCALL_FILE_READ_SYNC:
-			{
-				// Read Page-by-Page.
-				GprState.Rax=(ULONG64)PvIoReadFileSynchronous(CrState.Cr3,(HANDLE)GprState.Rdx,(ULONG)GprState.R8,(ULONG)GprState.R9);
-				Result=TRUE;
-				break;
-			}
-			case NOIR_HYPERCALL_FILE_WRITE_SYNC:
-			{
-				Result=TRUE;
-				break;
-			}
-			case NOIR_HYPERCALL_FILE_SET_POINTER:
-			{
-				PLARGE_INTEGER NewPointer=(PLARGE_INTEGER)&GprState.R8;
-				GprState.Rax=(ULONG64)SetFilePointer((HANDLE)GprState.Rdx,NewPointer->LowPart,&NewPointer->HighPart,(DWORD)GprState.R9);
-				Result=TRUE;
-				break;
+				DebugCommandWords[ParsedWords]=MemAlloc(i-PrevLocation);
+				RtlCopyMemory(DebugCommandWords[ParsedWords],&DebugCommand[PrevLocation],i-PrevLocation);
+				DebugCommandWords[ParsedWords][i-PrevLocation]='\0';
+				ParsedWords++;
+				PrevLocation=i+1;
 			}
 		}
 	}
-	return Result;
+	if(_stricmp(DebugCommandWords[0],"q")==0)
+		ContinueExecution=FALSE;
+	else if(DebugCommandWords[0][0]=='d')
+	{
+		if(DebugCommandWords[1]==NULL)
+			PvPrintConsoleA("Missing argument for content displaying\n");
+		else
+		{
+			switch(DebugCommandWords[0][1])
+			{
+				case 'b':
+				{
+					// Display memory in bytes.
+					ULONG DisplayedItems=0x80;
+					// BYTE Buffer[16];
+					ULONG RemainingBytes=DisplayedItems;
+					ULONG64 DisplayAddress=strtoull(DebugCommandWords[1],NULL,16);
+					if(DebugCommandWords[2])
+						if(DebugCommandWords[2][0]=='l')
+							DisplayedItems=strtoul(&DebugCommandWords[2][1],NULL,16);
+					do
+					{
+						;
+					}while(RemainingBytes);
+					break;
+				}
+				case 'w':
+				{
+					// Display memory in words.
+					break;
+				}
+				case 'd':
+				{
+					// Display memory in doublewords.
+					break;
+				}
+				case 'q':
+				{
+					// Display memory in quadwords.
+					break;
+				}
+				case 'v':
+				{
+					// Display local variables.
+					break;
+				}
+			}
+		}
+	}
+	else if(DebugCommandWords[0][0]=='g')
+	{
+		// Continue execution.
+		LeaveDebugger=TRUE;
+	}
+	else if(DebugCommandWords[0][0]=='t')
+	{
+		// Single-Stepping.
+		LeaveDebugger=TRUE;
+	}
+	else if(DebugCommandWords[0][0]=='h')
+	{
+		// Enter host debugger.
+	}
+	else
+		PvPrintConsoleA("Unknown Debugger Command: %s\n",DebugCommand);
+	if(ContinueExecution && !LeaveDebugger)goto ReadDebugConsole;
+	for(ULONG i=0;i<ParsedWords;i++)MemFree(DebugCommandWords[i]);
+	return ContinueExecution;
 }
 
 NOIR_STATUS PvStartParavirtualizedGuest()
@@ -598,6 +794,32 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 					ContinueExecution=FALSE;
 					break;
 				}
+				case CvMemoryAccess:
+				{
+					CHAR Cmd[100];
+					CHAR FuncName[MAX_PATH];
+					CHAR Mnemonic[64];
+					BYTE InsLen;
+					PvPrintConsoleA("Nested Page-Fault is intercepted!\n");
+					if(ExitContext.MemoryAccess.Access.Read)PvPrintConsoleA("The #NPF is induced by read!\n");
+					if(ExitContext.MemoryAccess.Access.Write)PvPrintConsoleA("The #NPF is induced by write!\n");
+					if(ExitContext.MemoryAccess.Access.Execute)PvPrintConsoleA("The #NPF is induced by execution!\n");
+					if(ExitContext.MemoryAccess.Access.User)PvPrintConsoleA("The #NPF happened in user-mode!\n");
+					PvPrintConsoleA("Referenced GPA that triggers #NPF: 0x%X\n",ExitContext.MemoryAccess.Gpa);
+					PvPrintGeneralPurposeRegisters(0);
+					PvPrintConsoleA("rflags\t\t0x%016llX\n",ExitContext.Rflags);
+					PvPrintConsoleA("rip\t\t0x%016llX\n",ExitContext.Rip);
+					if(PvdGetSymbolNameWithLineInfo(ExitContext.Rip,FuncName,sizeof(FuncName)))
+						PvPrintConsoleA("%s\n",FuncName);
+					InsLen=NoirDisasmCode64(Mnemonic,sizeof(Mnemonic),ExitContext.MemoryAccess.InstructionBytes,15,ExitContext.Rip);
+					PvPrintConsoleA("0x%p\t",ExitContext.Rip);
+					for(BYTE i=0;i<InsLen;i++)
+						PvPrintConsoleA("%02X",ExitContext.MemoryAccess.InstructionBytes[i]);
+					PvPrintConsoleA("\t%s\n",Mnemonic);
+					StringCbGetsA(Cmd,sizeof(Cmd));
+					ContinueExecution=FALSE;
+					break;
+				}
 				case CvHltInstruction:
 				{
 					if(_bittest64(&ExitContext.Rflags,RFLAGS_IF))
@@ -606,7 +828,6 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 						// Wait for external hardwares to send interrupts.
 						PvReadGuestStdInAsync(DummyBuffer,sizeof(DummyBuffer),&StdInOverlapped);
 						ULONG WaitResult=WaitForMultipleObjects(3,PvHardwareEventGroup,FALSE,INFINITE);
-						PvPrintConsoleA("vCPU is halted, waiting for external events...\n");
 						switch(WaitResult)
 						{
 							case WAIT_OBJECT_0:
@@ -676,8 +897,10 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 				}
 				case CvException:
 				{
-					CHAR Cmd[100];
 					CHAR FuncName[MAX_PATH];
+					CHAR Mnemonic[64];
+					BYTE Code[15];
+					BYTE InsLen;
 					PvPrintConsoleA("Exception Vector %u is intercepted!\n",ExitContext.Exception.Vector);
 					PvPrintConsoleA("Error Code is valid: 0x%X\n",ExitContext.Exception.ErrorCode);
 					if(ExitContext.Exception.Vector==14)PvPrintConsoleA("#PF Linear Address: 0x%p\n",ExitContext.Exception.PageFaultAddress);
@@ -686,8 +909,14 @@ NOIR_STATUS PvStartParavirtualizedGuest()
 					PvPrintConsoleA("rip\t\t0x%016llX\n",ExitContext.Rip);
 					if(PvdGetSymbolNameWithLineInfo(ExitContext.Rip,FuncName,sizeof(FuncName)))
 						PvPrintConsoleA("%s\n",FuncName);
-					StringCbGetsA(Cmd,sizeof(Cmd));
-					ContinueExecution=FALSE;
+					if(PvReadGuestMemory(PvPagingStructuresBase,ExitContext.Rip,Code,15,TRUE,1))
+						PvPrintConsoleA("[Debugger] Failed to translate virtual address 0x%p!\n",ExitContext.Rip);
+					InsLen=NoirDisasmCode64(Mnemonic,sizeof(Mnemonic),Code,15,ExitContext.Rip);
+					PvPrintConsoleA("0x%p\t",ExitContext.Rip);
+					for(BYTE i=0;i<InsLen;i++)
+						PvPrintConsoleA("%02X",Code[i]);
+					PvPrintConsoleA("\t%s\n",Mnemonic);
+					ContinueExecution=PvDebugParavirtualizedGuest(0);
 					break;
 				}
 				case CvRescission:
@@ -827,11 +1056,13 @@ NOIR_STATUS PvInitializeVirtualMachine(IN ULONG32 VpCount)
 				// Map the paging structures.
 				MapInfo.GPA=PvPagingStructuresBase;
 				MapInfo.HVA=(ULONG64)PvPagingStructures;
+				MapInfo.NumberOfPages=PvPagingStructuresPages;
 				st=NoirSetAddressMapping(PvCvm,&MapInfo);
 				PvPrintConsoleA("Guest Internal Paging Structure Mapping Status=0x%X\n",st);
 				// Map the basic free memory.
 				MapInfo.GPA=PvBasicFreeMemoryBase;
 				MapInfo.HVA=(ULONG64)PvBasicFreeMemory;
+				MapInfo.NumberOfPages=PvBasicFreeMemoryPages;
 				st=NoirSetAddressMapping(PvCvm,&MapInfo);
 				PvPrintConsoleA("Basic Free Memory Paging Structure Mapping Status=0x%X\n",st);
 				// Initialize vCPUs.

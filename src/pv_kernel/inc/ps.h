@@ -1,6 +1,9 @@
 #include "pvdef.h"
 #include "vad.h"
 
+#define USER_STACK_SIZE		0x100000
+#define USER_STACK_PAGES	0x100
+
 typedef struct _HANDLE_TABLE
 {
 	ULONG64 TableCode;
@@ -15,18 +18,19 @@ typedef struct _KPROCESS
 	KVAD VadRoot;
 	ULONG UniqueProcessId;
 	PVOID SectionBase;
-	ULONG64 DefaultStackLimit;
 	LIST_ENTRY ThreadListHead;
 }KPROCESS,*PKPROCESS;
 
 typedef struct _KTHREAD
 {
 	LIST_ENTRY ThreadListEntry;
-	CONTEXT ThreadContext;
+	CONTEXT Context;
 	PVOID StackBase;
 	PKPROCESS Process;
-	ULONG64 StackLimit;
 	ULONG UniqueThreadId;
 }KTHREAD,*PKTHREAD;
 
+#if defined(_PSMGR)
 KPROCESS PvIdleProcess={0};
+extern ULONG64 PvUserKernelSharedRegionPhysicalBase;
+#endif

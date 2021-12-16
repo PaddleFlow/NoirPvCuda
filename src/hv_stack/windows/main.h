@@ -1,5 +1,6 @@
 // Main header.
 
+void NoirInitializeDisassembler();
 void PvInitializeConsole();
 BOOL PvCreateGuestConsole();
 void PvTerminateGuestConsole();
